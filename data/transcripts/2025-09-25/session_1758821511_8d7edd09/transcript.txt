@@ -1,6 +1,0 @@
-Session: session_1758821511_8d7edd09
-Date: 2025-09-25
-Started: 2025-09-25T13:31:51.609646
---------------------------------------------------
-
-[13:31:51] TestSpeaker: This is a test segment

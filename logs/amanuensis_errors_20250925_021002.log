@@ -1,3 +1,0 @@
-2025-09-25 02:10:04 | enhanced_whisper     | ERROR    | ensure_mono_and_resample:152  | Resampling error: array of sample points is empty
-2025-09-25 02:10:10 | enhanced_whisper     | ERROR    | load_model     :355  | Failed to load model: Model test failed: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\nicol\\AppData\\Local\\Temp\\tmptvizknab.wav'
-2025-09-25 02:10:10 | health_monitor       | ERROR    | report_error   :234  | [model_load] Failed to load model: Model test failed: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\nicol\\AppData\\Local\\Temp\\tmptvizknab.wav'

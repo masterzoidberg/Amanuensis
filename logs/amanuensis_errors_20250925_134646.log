@@ -1,9 +1,0 @@
-2025-09-25 13:46:49 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-tiny from the Hugging Face Hub:
-Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
-2025-09-25 13:46:49 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.
-2025-09-25 13:46:49 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-base from the Hugging Face Hub:
-Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
-2025-09-25 13:46:49 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.
-2025-09-25 13:46:52 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-large-v3 from the Hugging Face Hub:
-Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
-2025-09-25 13:46:52 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.

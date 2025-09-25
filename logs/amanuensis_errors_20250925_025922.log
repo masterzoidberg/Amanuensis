@@ -1,2 +1,0 @@
-2025-09-25 02:59:26 | enhanced_whisper     | ERROR    | load_model     :471  | Failed to load model: Model test failed: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\nicol\\AppData\\Local\\Temp\\tmpyem77ebb.wav'
-2025-09-25 02:59:26 | health_monitor       | ERROR    | report_error   :234  | [model_load] Failed to load model: Model test failed: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\nicol\\AppData\\Local\\Temp\\tmpyem77ebb.wav'

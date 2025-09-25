@@ -1,4 +1,0 @@
-{"session_id": "20250925_015213", "start_time": "2025-09-25T01:52:13.125584+00:00", "format": "transcript_segments", "version": "1.0"}
-{"timestamp": 1758765133.1265845, "end_time": 1758765136.1265845, "speaker": "Therapist", "text": "How are you feeling today?", "confidence": 0.9, "is_partial": false}
-{"timestamp": 1758765138.1265845, "end_time": 1758765141.1265845, "speaker": "Client", "text": "I'm feeling a bit anxious.", "confidence": 0.9, "is_partial": false}
-{"timestamp": 1758765143.1265845, "end_time": 1758765146.1265845, "speaker": "Therapist", "text": "Can you tell me more about that?", "confidence": 0.9, "is_partial": false}

@@ -1,8 +1,0 @@
-2025-09-25 00:11:37 | audio_manager        | INFO     | __init__       :14   | Initializing AudioManager
-2025-09-25 00:11:37 | audio_manager        | INFO     | __init__       :48   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024
-2025-09-25 00:11:37 | audio_manager        | INFO     | __init__       :14   | Initializing AudioManager
-2025-09-25 00:11:37 | audio_manager        | INFO     | __init__       :48   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024
-2025-09-25 00:11:37 | audio_manager        | INFO     | __init__       :14   | Initializing AudioManager
-2025-09-25 00:11:37 | audio_manager        | INFO     | __init__       :48   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024
-2025-09-25 00:11:38 | audio_manager        | INFO     | __init__       :14   | Initializing AudioManager
-2025-09-25 00:11:38 | audio_manager        | INFO     | __init__       :48   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024
