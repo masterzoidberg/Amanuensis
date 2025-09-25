@@ -1,0 +1,20 @@
+{
+  "session_id": "session_1758822775_15f66651",
+  "segments": [
+    {
+      "start_time": 1758822775.5101197,
+      "end_time": 1758822777.5101197,
+      "speaker": "TestSpeaker",
+      "text": "This is a test segment",
+      "confidence": 0.95,
+      "is_partial": false
+    }
+  ],
+  "stats": {
+    "total_segments": 1,
+    "speakers": [
+      "TestSpeaker"
+    ],
+    "total_duration": 2.0
+  }
+}

@@ -1,0 +1,25 @@
+2025-09-25 01:23:14 | audio_transcription_bridge | WARNING  | __init__       :60   | AudioManager doesn't support audio data callbacks
+2025-09-25 01:24:50 | audio_manager        | ERROR    | start_recording:485  | System audio device test failed: [Errno -9999] Unanticipated host error
+2025-09-25 01:24:50 | session_recorder     | ERROR    | start_recording:698  | Recording start failed: System audio device 'Stereo Mix (Realtek HD Audio Stereo input)' is not compatible: [Errno -9999] Unanticipated host error
+
+Tip: Stereo Mix may be disabled in Windows. Try:
+1. Right-click sound icon → Sounds → Recording tab
+2. Right-click empty space → Show Disabled Devices
+3. Enable Stereo Mix if available
+4. Or select a different system audio device
+2025-09-25 01:25:01 | audio_manager        | ERROR    | start_recording:485  | System audio device test failed: [Errno -9999] Unanticipated host error
+2025-09-25 01:25:01 | session_recorder     | ERROR    | start_recording:698  | Recording start failed: System audio device 'Stereo Mix (Realtek HD Audio Stereo input)' is not compatible: [Errno -9999] Unanticipated host error
+
+Tip: Stereo Mix may be disabled in Windows. Try:
+1. Right-click sound icon → Sounds → Recording tab
+2. Right-click empty space → Show Disabled Devices
+3. Enable Stereo Mix if available
+4. Or select a different system audio device
+2025-09-25 01:25:27 | audio_manager        | ERROR    | start_recording:485  | System audio device test failed: [Errno -9999] Unanticipated host error
+2025-09-25 01:25:27 | session_recorder     | ERROR    | start_recording:698  | Recording start failed: System audio device 'Stereo Mix (Realtek HD Audio Stereo input)' is not compatible: [Errno -9999] Unanticipated host error
+
+Tip: Stereo Mix may be disabled in Windows. Try:
+1. Right-click sound icon → Sounds → Recording tab
+2. Right-click empty space → Show Disabled Devices
+3. Enable Stereo Mix if available
+4. Or select a different system audio device

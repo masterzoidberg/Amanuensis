@@ -1,0 +1,3 @@
+2025-09-25 03:12:16 | audio_manager        | INFO     | __init__       :22   | Initializing AudioManager
+2025-09-25 03:12:16 | audio_manager        | INFO     | __init__       :60   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024
+2025-09-25 03:12:16 | audio_manager        | DEBUG    | add_audio_data_callback:70   | Added audio data callback, total callbacks: 1

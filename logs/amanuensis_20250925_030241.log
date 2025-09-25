@@ -1,0 +1,191 @@
+2025-09-25 03:02:41 | logger_config        | INFO     | _setup_logging :100  | ================================================================================
+2025-09-25 03:02:41 | logger_config        | INFO     | _setup_logging :101  | AMANUENSIS LOGGING SYSTEM INITIALIZED
+2025-09-25 03:02:41 | logger_config        | INFO     | _setup_logging :102  | Main log file: logs\amanuensis_20250925_030241.log
+2025-09-25 03:02:41 | logger_config        | INFO     | _setup_logging :103  | Error log file: logs\amanuensis_errors_20250925_030241.log
+2025-09-25 03:02:41 | logger_config        | INFO     | _setup_logging :104  | Audio log file: logs\amanuensis_audio_20250925_030241.log
+2025-09-25 03:02:41 | logger_config        | INFO     | _setup_logging :105  | ================================================================================
+2025-09-25 03:02:43 | audio_manager        | INFO     | __init__       :22   | Initializing AudioManager
+2025-09-25 03:02:43 | audio_manager        | INFO     | __init__       :56   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024
+2025-09-25 03:02:43 | transcription_config | INFO     | get_device_config:118  | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 03:02:43 | health_monitor       | INFO     | __init__       :92   | Transcription Health Monitor initialized
+2025-09-25 03:02:43 | health_monitor       | INFO     | start_monitoring:120  | Health monitoring started
+2025-09-25 03:02:43 | enhanced_whisper     | INFO     | __init__       :217  | Enhanced Whisper Manager initialized: model=small, device=cuda
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | wrapper        :205  | CALL: get_audio_devices(1 args, 0 kwargs)
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:65   | Scanning for audio devices...
+2025-09-25 03:02:43 | audio_manager        | INFO     | get_audio_devices:73   | Found 37 audio devices
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 0: 'Input' (raw: 'Microsoft Sound Mapper - Input') - In:2 Out:0
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 1: 'Microphone (TONOR TC30 Audio De' (raw: 'Microphone (TONOR TC30 Audio De') - In:1 Out:0
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 2: 'Microphone (Logi C615 HD WebCam' (raw: 'Microphone (Logi C615 HD WebCam') - In:1 Out:0
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 3: 'Output' (raw: 'Microsoft Sound Mapper - Output') - In:0 Out:2
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 4: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 5: 'Realtek Digital Output (Realtek' (raw: 'Realtek Digital Output (Realtek') - In:0 Out:2
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 6: 'Q27G4N (NVIDIA High Definition ' (raw: 'Q27G4N (NVIDIA High Definition ') - In:0 Out:2
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 7: 'CR340HD (NVIDIA High Definition' (raw: 'CR340HD (NVIDIA High Definition') - In:0 Out:2
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 8: 'LG ULTRAGEAR (NVIDIA High Defin' (raw: 'LG ULTRAGEAR (NVIDIA High Defin') - In:0 Out:2
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 9: 'Primary Sound Capture Driver' (raw: 'Primary Sound Capture Driver') - In:2 Out:0
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 10: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 11: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 12: 'Primary Sound Driver' (raw: 'Primary Sound Driver') - In:0 Out:2
+2025-09-25 03:02:43 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 13: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 14: 'Realtek Digital Output (Realtek(R) Audio)' (raw: 'Realtek Digital Output (Realtek(R) Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 15: 'Q27G4N (NVIDIA High Definition Audio)' (raw: 'Q27G4N (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 16: 'CR340HD (NVIDIA High Definition Audio)' (raw: 'CR340HD (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 17: 'LG ULTRAGEAR (NVIDIA High Definition Audio)' (raw: 'LG ULTRAGEAR (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 18: 'Realtek Digital Output (Realtek(R) Audio)' (raw: 'Realtek Digital Output (Realtek(R) Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 19: 'Q27G4N (NVIDIA High Definition Audio)' (raw: 'Q27G4N (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 20: 'CR340HD (NVIDIA High Definition Audio)' (raw: 'CR340HD (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 21: 'LG ULTRAGEAR (NVIDIA High Definition Audio)' (raw: 'LG ULTRAGEAR (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 22: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 23: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 24: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 25: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 26: 'Microphone (Realtek HD Audio Mic input)' (raw: 'Microphone (Realtek HD Audio Mic input)') - In:2 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 27: 'SPDIF Out (Realtek HDA SPDIF Out)' (raw: 'SPDIF Out (Realtek HDA SPDIF Out)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 28: 'Line In (Realtek HD Audio Line input)' (raw: 'Line In (Realtek HD Audio Line input)') - In:2 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 29: 'Headphones (Realtek HD Audio 2nd output)' (raw: 'Headphones (Realtek HD Audio 2nd output)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 30: 'Speakers (Realtek HD Audio output)' (raw: 'Speakers (Realtek HD Audio output)') - In:0 Out:8
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 31: 'Stereo Mix (Realtek HD Audio Stereo input)' (raw: 'Stereo Mix (Realtek HD Audio Stereo input)') - In:2 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:97   |   -> Added as SYSTEM RECORDING device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 32: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 33: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 34: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 35: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 36: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | INFO     | get_audio_devices:125  | Device scan complete: 12 input, 24 output, 1 system recording
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | wrapper        :209  | RETURN: get_audio_devices -> dict
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | wrapper        :205  | CALL: get_audio_devices(1 args, 0 kwargs)
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:65   | Scanning for audio devices...
+2025-09-25 03:02:44 | audio_manager        | INFO     | get_audio_devices:73   | Found 37 audio devices
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 0: 'Input' (raw: 'Microsoft Sound Mapper - Input') - In:2 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 1: 'Microphone (TONOR TC30 Audio De' (raw: 'Microphone (TONOR TC30 Audio De') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 2: 'Microphone (Logi C615 HD WebCam' (raw: 'Microphone (Logi C615 HD WebCam') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 3: 'Output' (raw: 'Microsoft Sound Mapper - Output') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 4: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 5: 'Realtek Digital Output (Realtek' (raw: 'Realtek Digital Output (Realtek') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 6: 'Q27G4N (NVIDIA High Definition ' (raw: 'Q27G4N (NVIDIA High Definition ') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 7: 'CR340HD (NVIDIA High Definition' (raw: 'CR340HD (NVIDIA High Definition') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 8: 'LG ULTRAGEAR (NVIDIA High Defin' (raw: 'LG ULTRAGEAR (NVIDIA High Defin') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 9: 'Primary Sound Capture Driver' (raw: 'Primary Sound Capture Driver') - In:2 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 10: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 11: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 12: 'Primary Sound Driver' (raw: 'Primary Sound Driver') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 13: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 14: 'Realtek Digital Output (Realtek(R) Audio)' (raw: 'Realtek Digital Output (Realtek(R) Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 15: 'Q27G4N (NVIDIA High Definition Audio)' (raw: 'Q27G4N (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 16: 'CR340HD (NVIDIA High Definition Audio)' (raw: 'CR340HD (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 17: 'LG ULTRAGEAR (NVIDIA High Definition Audio)' (raw: 'LG ULTRAGEAR (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 18: 'Realtek Digital Output (Realtek(R) Audio)' (raw: 'Realtek Digital Output (Realtek(R) Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 19: 'Q27G4N (NVIDIA High Definition Audio)' (raw: 'Q27G4N (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 20: 'CR340HD (NVIDIA High Definition Audio)' (raw: 'CR340HD (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 21: 'LG ULTRAGEAR (NVIDIA High Definition Audio)' (raw: 'LG ULTRAGEAR (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 22: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 23: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 24: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 25: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 26: 'Microphone (Realtek HD Audio Mic input)' (raw: 'Microphone (Realtek HD Audio Mic input)') - In:2 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 27: 'SPDIF Out (Realtek HDA SPDIF Out)' (raw: 'SPDIF Out (Realtek HDA SPDIF Out)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 28: 'Line In (Realtek HD Audio Line input)' (raw: 'Line In (Realtek HD Audio Line input)') - In:2 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 29: 'Headphones (Realtek HD Audio 2nd output)' (raw: 'Headphones (Realtek HD Audio 2nd output)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 30: 'Speakers (Realtek HD Audio output)' (raw: 'Speakers (Realtek HD Audio output)') - In:0 Out:8
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 31: 'Stereo Mix (Realtek HD Audio Stereo input)' (raw: 'Stereo Mix (Realtek HD Audio Stereo input)') - In:2 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:97   |   -> Added as SYSTEM RECORDING device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 32: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 33: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 34: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 35: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:119  |   -> Added as OUTPUT device
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:83   | Device 36: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | get_audio_devices:107  |   -> Added as INPUT device
+2025-09-25 03:02:44 | audio_manager        | INFO     | get_audio_devices:125  | Device scan complete: 12 input, 24 output, 1 system recording
+2025-09-25 03:02:44 | audio_manager        | DEBUG    | wrapper        :209  | RETURN: get_audio_devices -> dict
+2025-09-25 03:02:44 | model_loader         | INFO     | load_whisper_model:76   | Loading model: small • cuda • float16
+2025-09-25 03:02:44 | urllib3.connectionpool | DEBUG    | _new_conn      :1049 | Starting new HTTPS connection (1): huggingface.co:443
+2025-09-25 03:02:44 | urllib3.connectionpool | DEBUG    | _make_request  :544  | https://huggingface.co:443 "GET /api/models/Systran/faster-whisper-small/revision/main HTTP/1.1" 200 2013
+2025-09-25 03:02:44 | model_loader         | INFO     | load_whisper_model:85   | Model ready: small • cuda • float16
+2025-09-25 03:02:45 | faster_whisper       | INFO     | transcribe     :855  | Processing audio with duration 00:01.000
+2025-09-25 03:02:45 | faster_whisper       | DEBUG    | generate_segments:1157 | Processing segment at 00:00.000
+2025-09-25 03:02:45 | faster_whisper       | DEBUG    | generate_with_fallback:1474 | Log probability threshold is not met with temperature 0.0 (-1.147425 < -1.000000)
+2025-09-25 03:02:45 | faster_whisper       | DEBUG    | generate_segments:1201 | No speech threshold is met (0.875000 > 0.600000)
+2025-09-25 03:02:45 | enhanced_whisper     | DEBUG    | _safe_cleanup_temp_file:530  | Successfully cleaned up temp file: C:\Users\nicol\AppData\Local\Temp\tmpto8ie2jg.wav
+2025-09-25 03:02:45 | enhanced_whisper     | INFO     | load_model     :461  | Model small loaded successfully on cuda
+2025-09-25 03:02:45 | audio_transcription_bridge | INFO     | __init__       :204  | AudioTranscriptionBridge initialized. Whisper chunk size: 5s
+2025-09-25 03:02:45 | audio_transcription_bridge | WARNING  | __init__       :210  | AudioManager doesn't support audio data callbacks
+2025-09-25 03:02:45 | enhanced_whisper     | DEBUG    | add_result_callback:549  | Added result callback, total: 1
+2025-09-25 03:02:45 | faster_whisper       | INFO     | transcribe     :855  | Processing audio with duration 00:02.000
+2025-09-25 03:02:45 | faster_whisper       | DEBUG    | generate_segments:1157 | Processing segment at 00:00.000
+2025-09-25 03:02:47 | faster_whisper       | DEBUG    | generate_with_fallback:1459 | Compression ratio threshold is not met with temperature 0.0 (52.294118 > 2.400000)
+2025-09-25 03:02:49 | faster_whisper       | DEBUG    | generate_with_fallback:1459 | Compression ratio threshold is not met with temperature 0.2 (52.294118 > 2.400000)
+2025-09-25 03:02:50 | faster_whisper       | DEBUG    | generate_with_fallback:1459 | Compression ratio threshold is not met with temperature 0.4 (52.294118 > 2.400000)
+2025-09-25 03:02:51 | faster_whisper       | DEBUG    | generate_with_fallback:1459 | Compression ratio threshold is not met with temperature 0.6 (80.772727 > 2.400000)
+2025-09-25 03:02:51 | faster_whisper       | DEBUG    | generate_with_fallback:1474 | Log probability threshold is not met with temperature 0.8 (-1.402959 < -1.000000)
+2025-09-25 03:02:51 | faster_whisper       | DEBUG    | generate_segments:1201 | No speech threshold is met (0.789062 > 0.600000)

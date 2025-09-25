@@ -1,0 +1,24 @@
+{
+  "session_id": "20250925_015244",
+  "start_time": "2025-09-25T01:52:44.431568+00:00",
+  "end_time": "2025-09-25T01:52:44.433846+00:00",
+  "metadata": {
+    "test": true,
+    "session_type": "test"
+  },
+  "storage_paths": {
+    "session_dir": "data\\recordings\\2025-09-24\\20250925_015244",
+    "transcript_dir": "data\\transcripts\\2025-09-24\\20250925_015244",
+    "audio_file": "data\\recordings\\2025-09-24\\20250925_015244\\audio.wav",
+    "transcript_jsonl": "data\\transcripts\\2025-09-24\\20250925_015244\\transcript.jsonl",
+    "transcript_txt": "data\\transcripts\\2025-09-24\\20250925_015244\\transcript.txt"
+  },
+  "stats": {
+    "total_segments": 1,
+    "total_duration": 2.0,
+    "speakers": [
+      "TestSpeaker"
+    ],
+    "audio_chunks_saved": 0
+  }
+}

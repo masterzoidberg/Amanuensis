@@ -1,0 +1,39 @@
+2025-09-25 00:57:22 | logger_config        | INFO     | _setup_logging :100  | ================================================================================
+2025-09-25 00:57:22 | logger_config        | INFO     | _setup_logging :101  | AMANUENSIS LOGGING SYSTEM INITIALIZED
+2025-09-25 00:57:22 | logger_config        | INFO     | _setup_logging :102  | Main log file: logs\amanuensis_20250925_005722.log
+2025-09-25 00:57:22 | logger_config        | INFO     | _setup_logging :103  | Error log file: logs\amanuensis_errors_20250925_005722.log
+2025-09-25 00:57:22 | logger_config        | INFO     | _setup_logging :104  | Audio log file: logs\amanuensis_audio_20250925_005722.log
+2025-09-25 00:57:22 | logger_config        | INFO     | _setup_logging :105  | ================================================================================
+2025-09-25 00:57:22 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 00:57:22 | transcription_config | DEBUG    | ensure_directories:76   | Ensured directory exists: data\transcripts
+2025-09-25 00:57:22 | transcription_config | DEBUG    | ensure_directories:76   | Ensured directory exists: data\recordings
+2025-09-25 00:57:22 | transcription_config | DEBUG    | ensure_directories:76   | Ensured directory exists: whisper_models
+2025-09-25 00:57:22 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 00:57:22 | transcription_config | INFO     | log_config     :178  | Transcription Configuration:
+2025-09-25 00:57:22 | transcription_config | INFO     | log_config     :179  |   Model: medium
+2025-09-25 00:57:22 | transcription_config | INFO     | log_config     :180  |   Device: cuda
+2025-09-25 00:57:22 | transcription_config | INFO     | log_config     :181  |   Compute Type: float16
+2025-09-25 00:57:22 | transcription_config | INFO     | log_config     :182  |   Chunk Duration: 5.0s
+2025-09-25 00:57:22 | transcription_config | INFO     | log_config     :183  |   VAD Enabled: True
+2025-09-25 00:57:22 | transcription_config | INFO     | log_config     :184  |   Recordings Dir: data\recordings
+2025-09-25 00:57:22 | transcription_config | INFO     | log_config     :185  |   Transcripts Dir: data\transcripts
+2025-09-25 00:57:22 | whisper_model_manager | INFO     | __init__       :367  | WhisperModelManager initialized with models dir: G:\Projects\Amanuensis\whisper_models
+2025-09-25 00:57:22 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 00:57:22 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'tiny' is installed (using cpu)
+2025-09-25 00:57:23 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-tiny from the Hugging Face Hub:
+Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 00:57:23 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.
+2025-09-25 00:57:23 | whisper_model_manager | DEBUG    | is_model_installed:400  | Model tiny not found locally: Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 00:57:23 | session_storage      | INFO     | __init__       :86   | SessionStorageManager initialized
+2025-09-25 00:57:23 | session_storage      | INFO     | __init__       :87   |   Recordings: data\recordings
+2025-09-25 00:57:23 | session_storage      | INFO     | __init__       :88   |   Transcripts: data\transcripts
+2025-09-25 00:57:23 | session_storage      | INFO     | start_session  :134  | Started session: session_1758776243_fcb7e597
+2025-09-25 00:57:23 | session_storage      | INFO     | start_session  :135  |   Recording dir: data\recordings\2025-09-25\session_1758776243_fcb7e597
+2025-09-25 00:57:23 | session_storage      | INFO     | start_session  :136  |   Transcript dir: data\transcripts\2025-09-25\session_1758776243_fcb7e597
+2025-09-25 00:57:23 | session_storage      | DEBUG    | save_transcript_segment:172  | Saved segment: TestSpeaker: This is a test segment...
+2025-09-25 00:57:23 | session_storage      | DEBUG    | _save_transcript_files:296  | Saved transcript files: 1 segments
+2025-09-25 00:57:23 | session_storage      | INFO     | end_session    :344  | Session ended: session_1758776243_fcb7e597
+2025-09-25 00:57:23 | session_storage      | INFO     | end_session    :345  |   Segments: 1
+2025-09-25 00:57:23 | session_storage      | INFO     | end_session    :346  |   Duration: 0.0s
+2025-09-25 00:57:23 | session_storage      | INFO     | end_session    :347  |   Speakers: 1
+2025-09-25 00:57:23 | audio_transcription_bridge | INFO     | __init__       :54   | AudioTranscriptionBridge initialized. Whisper chunk size: 5s

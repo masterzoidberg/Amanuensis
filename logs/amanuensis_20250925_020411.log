@@ -1,0 +1,28 @@
+2025-09-25 02:04:11 | logger_config        | INFO     | _setup_logging :100  | ================================================================================
+2025-09-25 02:04:11 | logger_config        | INFO     | _setup_logging :101  | AMANUENSIS LOGGING SYSTEM INITIALIZED
+2025-09-25 02:04:11 | logger_config        | INFO     | _setup_logging :102  | Main log file: logs\amanuensis_20250925_020411.log
+2025-09-25 02:04:11 | logger_config        | INFO     | _setup_logging :103  | Error log file: logs\amanuensis_errors_20250925_020411.log
+2025-09-25 02:04:11 | logger_config        | INFO     | _setup_logging :104  | Audio log file: logs\amanuensis_audio_20250925_020411.log
+2025-09-25 02:04:11 | logger_config        | INFO     | _setup_logging :105  | ================================================================================
+2025-09-25 02:04:11 | audio_manager        | INFO     | __init__       :22   | Initializing AudioManager
+2025-09-25 02:04:11 | audio_manager        | INFO     | __init__       :56   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024
+2025-09-25 02:04:11 | audio_manager        | DEBUG    | open_soundcard_loopback_stream:253  | Default speaker: Speakers (Logi Z407)
+2025-09-25 02:04:11 | audio_manager        | INFO     | open_soundcard_loopback_stream:258  | Soundcard loopback stream opened successfully for device: Speakers (Logi Z407)
+2025-09-25 02:04:11 | audio_manager        | DEBUG    | preflight_open :521  | Preflight testing device: soundcard_loopback
+2025-09-25 02:04:11 | audio_manager        | DEBUG    | open_soundcard_loopback_stream:253  | Default speaker: Speakers (Logi Z407)
+2025-09-25 02:04:11 | audio_manager        | INFO     | open_soundcard_loopback_stream:258  | Soundcard loopback stream opened successfully for device: Speakers (Logi Z407)
+2025-09-25 02:04:11 | audio_manager        | DEBUG    | preflight_open :533  | Soundcard loopback preflight: SUCCESS
+2025-09-25 02:04:11 | audio_manager        | DEBUG    | wrapper        :205  | CALL: stop_recording(1 args, 0 kwargs)
+2025-09-25 02:04:11 | audio_manager        | INFO     | stop_recording :992  | Stopping audio recording...
+2025-09-25 02:04:11 | audio_manager        | INFO     | stop_recording :1020 | Recording stopped - Buffer contains 0.0s (0 chunks)
+2025-09-25 02:04:11 | audio_manager        | DEBUG    | wrapper        :209  | RETURN: stop_recording -> NoneType
+2025-09-25 02:04:11 | audio_manager        | INFO     | __init__       :22   | Initializing AudioManager
+2025-09-25 02:04:11 | audio_manager        | INFO     | __init__       :56   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024
+2025-09-25 02:04:11 | audio_manager        | DEBUG    | preflight_open :521  | Preflight testing device: soundcard_loopback
+2025-09-25 02:04:11 | audio_manager        | DEBUG    | open_soundcard_loopback_stream:253  | Default speaker: Speakers (Logi Z407)
+2025-09-25 02:04:11 | audio_manager        | INFO     | open_soundcard_loopback_stream:258  | Soundcard loopback stream opened successfully for device: Speakers (Logi Z407)
+2025-09-25 02:04:12 | audio_manager        | DEBUG    | preflight_open :533  | Soundcard loopback preflight: SUCCESS
+2025-09-25 02:04:12 | audio_manager        | DEBUG    | wrapper        :205  | CALL: stop_recording(1 args, 0 kwargs)
+2025-09-25 02:04:12 | audio_manager        | INFO     | stop_recording :992  | Stopping audio recording...
+2025-09-25 02:04:12 | audio_manager        | INFO     | stop_recording :1020 | Recording stopped - Buffer contains 0.0s (0 chunks)
+2025-09-25 02:04:12 | audio_manager        | DEBUG    | wrapper        :209  | RETURN: stop_recording -> NoneType

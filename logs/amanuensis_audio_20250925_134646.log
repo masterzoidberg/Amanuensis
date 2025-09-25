@@ -1,0 +1,2 @@
+2025-09-25 13:46:49 | audio_manager        | INFO     | __init__       :22   | Initializing AudioManager
+2025-09-25 13:46:49 | audio_manager        | INFO     | __init__       :60   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024

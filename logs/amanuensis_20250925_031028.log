@@ -1,0 +1,17 @@
+2025-09-25 03:10:28 | logger_config        | INFO     | _setup_logging :100  | ================================================================================
+2025-09-25 03:10:28 | logger_config        | INFO     | _setup_logging :101  | AMANUENSIS LOGGING SYSTEM INITIALIZED
+2025-09-25 03:10:28 | logger_config        | INFO     | _setup_logging :102  | Main log file: logs\amanuensis_20250925_031028.log
+2025-09-25 03:10:28 | logger_config        | INFO     | _setup_logging :103  | Error log file: logs\amanuensis_errors_20250925_031028.log
+2025-09-25 03:10:28 | logger_config        | INFO     | _setup_logging :104  | Audio log file: logs\amanuensis_audio_20250925_031028.log
+2025-09-25 03:10:28 | logger_config        | INFO     | _setup_logging :105  | ================================================================================
+2025-09-25 03:10:30 | audio_manager        | INFO     | __init__       :22   | Initializing AudioManager
+2025-09-25 03:10:30 | audio_manager        | INFO     | __init__       :60   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024
+2025-09-25 03:10:30 | transcription_config | INFO     | get_device_config:118  | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 03:10:30 | health_monitor       | INFO     | __init__       :92   | Transcription Health Monitor initialized
+2025-09-25 03:10:30 | health_monitor       | INFO     | start_monitoring:120  | Health monitoring started
+2025-09-25 03:10:30 | enhanced_whisper     | INFO     | __init__       :217  | Enhanced Whisper Manager initialized: model=small, device=cuda
+2025-09-25 03:10:30 | audio_manager        | DEBUG    | add_audio_data_callback:70   | Added audio data callback, total callbacks: 1
+2025-09-25 03:10:30 | audio_transcription_bridge | INFO     | __init__       :204  | AudioTranscriptionBridge initialized. Whisper chunk size: 5s
+2025-09-25 03:10:30 | audio_manager        | DEBUG    | add_audio_data_callback:70   | Added audio data callback, total callbacks: 2
+2025-09-25 03:10:30 | audio_transcription_bridge | INFO     | __init__       :209  | Audio callback registered successfully with AudioManager
+2025-09-25 03:10:30 | enhanced_whisper     | DEBUG    | add_result_callback:549  | Added result callback, total: 1

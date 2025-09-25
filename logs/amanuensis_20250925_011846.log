@@ -1,0 +1,287 @@
+2025-09-25 01:18:46 | logger_config        | INFO     | _setup_logging :100  | ================================================================================
+2025-09-25 01:18:46 | logger_config        | INFO     | _setup_logging :101  | AMANUENSIS LOGGING SYSTEM INITIALIZED
+2025-09-25 01:18:46 | logger_config        | INFO     | _setup_logging :102  | Main log file: logs\amanuensis_20250925_011846.log
+2025-09-25 01:18:46 | logger_config        | INFO     | _setup_logging :103  | Error log file: logs\amanuensis_errors_20250925_011846.log
+2025-09-25 01:18:46 | logger_config        | INFO     | _setup_logging :104  | Audio log file: logs\amanuensis_audio_20250925_011846.log
+2025-09-25 01:18:46 | logger_config        | INFO     | _setup_logging :105  | ================================================================================
+2025-09-25 01:18:50 | main                 | INFO     | main           :446  | ============================================================
+2025-09-25 01:18:50 | main                 | INFO     | main           :447  | AMANUENSIS MAIN ENTRY POINT
+2025-09-25 01:18:50 | main                 | INFO     | main           :448  | Therapy Session Assistant - Three-Window Architecture
+2025-09-25 01:18:50 | main                 | INFO     | main           :449  | ============================================================
+2025-09-25 01:18:50 | main                 | DEBUG    | main           :452  | Checking dependencies...
+2025-09-25 01:18:50 | main                 | INFO     | main           :459  | All dependencies satisfied
+2025-09-25 01:18:50 | main                 | DEBUG    | main           :462  | Setting CustomTkinter appearance...
+2025-09-25 01:18:50 | main                 | INFO     | main           :467  | Starting Amanuensis application...
+2025-09-25 01:18:50 | amanuensis_main      | INFO     | __init__       :40   | ============================================================
+2025-09-25 01:18:50 | amanuensis_main      | INFO     | __init__       :41   | AMANUENSIS APPLICATION STARTING
+2025-09-25 01:18:50 | amanuensis_main      | INFO     | __init__       :42   | ============================================================
+2025-09-25 01:18:50 | system_info          | INFO     | log_system_info:138  | SYSTEM INFORMATION:
+2025-09-25 01:18:50 | system_info          | INFO     | log_system_info:139  | Python version: 3.10.11 (tags/v3.10.11:7d4cc5a, Apr  5 2023, 00:38:17) [MSC v.1929 64 bit (AMD64)]
+2025-09-25 01:18:50 | system_info          | INFO     | log_system_info:140  | Platform: win32
+2025-09-25 01:18:50 | system_info          | INFO     | log_system_info:141  | Working directory: G:\Projects\Amanuensis
+2025-09-25 01:18:50 | system_info          | INFO     | log_system_info:142  | Script path: amanuensis_new.py
+2025-09-25 01:18:50 | system_info          | INFO     | log_system_info:148  | ENV PATH: C:\Program Files\PowerShell\7;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\libnvvp;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\NVIDIA Corporation\NVIDIA App\NvDLISR;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\dotnet\;C:\Program Files\Git\cmd;C:\Program Files\nodejs\;C:\Program Files\PowerShell\7\;C:\Program Files\Docker\Docker\resources\bin;C:\Program Files\PuTTY\;C:\Program Files\cursor\resources\app\bin;C:\Program Files\NVIDIA Corporation\Nsight Compute 2025.1.1\;C:\Users\nicol\AppData\Local\Programs\Python\Python310\Scripts\;C:\Users\nicol\AppData\Local\Programs\Python\Python310\;C:\Users\nicol\.cargo\bin;C:\Users\nicol\AppData\Local\Programs\Python\Python311\Scripts\;C:\Users\nicol\AppData\Local\Programs\Python\Python311\;C:\Users\nicol\AppData\Local\Microsoft\WindowsApps;C:\Users\nicol\AppData\Local\Programs\Windsurf\bin;C:\Users\nicol\AppData\Roaming\npm;C:\Users\nicol\AppData\Local\Microsoft\WinGet\Links;
+2025-09-25 01:18:50 | system_info          | INFO     | log_system_info:148  | ENV PYTHONPATH: Not set
+2025-09-25 01:18:50 | system_info          | INFO     | log_system_info:148  | ENV HOME: Not set
+2025-09-25 01:18:50 | system_info          | INFO     | log_system_info:148  | ENV USER: Not set
+2025-09-25 01:18:50 | system_info          | INFO     | log_system_info:148  | ENV USERNAME: nicol
+2025-09-25 01:18:50 | amanuensis_main      | INFO     | __init__       :63   | Starting application initialization...
+2025-09-25 01:18:50 | amanuensis_main      | INFO     | initialize_app :68   | Initializing Amanuensis core components...
+2025-09-25 01:18:50 | amanuensis_main      | DEBUG    | initialize_app :72   | Creating SecureConfigManager...
+2025-09-25 01:18:50 | amanuensis_main      | INFO     | log_performance:164  | PERFORMANCE: SecureConfigManager init took 0.039s
+2025-09-25 01:18:50 | amanuensis_main      | DEBUG    | initialize_app :77   | Creating AudioManager...
+2025-09-25 01:18:50 | audio_manager        | INFO     | __init__       :14   | Initializing AudioManager
+2025-09-25 01:18:50 | audio_manager        | INFO     | __init__       :48   | AudioManager initialized - Buffer: 180s, Sample Rate: 44100, Chunk Size: 1024
+2025-09-25 01:18:50 | amanuensis_main      | INFO     | log_performance:164  | PERFORMANCE: AudioManager init took 0.089s
+2025-09-25 01:18:50 | amanuensis_main      | DEBUG    | initialize_app :82   | Creating APIManager...
+2025-09-25 01:18:50 | amanuensis_main      | INFO     | log_performance:164  | PERFORMANCE: APIManager init took 0.000s
+2025-09-25 01:18:50 | amanuensis_main      | DEBUG    | initialize_app :87   | Creating WhisperModelManager...
+2025-09-25 01:18:50 | whisper_model_manager | INFO     | __init__       :367  | WhisperModelManager initialized with models dir: G:\Projects\Amanuensis\whisper_models
+2025-09-25 01:18:50 | amanuensis_main      | INFO     | log_performance:164  | PERFORMANCE: WhisperModelManager init took 0.000s
+2025-09-25 01:18:50 | amanuensis_main      | INFO     | initialize_app :92   | Core managers initialized successfully
+2025-09-25 01:18:50 | amanuensis_main      | DEBUG    | initialize_app :95   | Checking Whisper model availability...
+2025-09-25 01:18:50 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:50 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'tiny' is installed (using cpu)
+2025-09-25 01:18:50 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-tiny from the Hugging Face Hub:
+Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:50 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.
+2025-09-25 01:18:50 | whisper_model_manager | DEBUG    | is_model_installed:400  | Model tiny not found locally: Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:50 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:50 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'base' is installed (using cpu)
+2025-09-25 01:18:50 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-base from the Hugging Face Hub:
+Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:50 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.
+2025-09-25 01:18:50 | whisper_model_manager | DEBUG    | is_model_installed:400  | Model base not found locally: Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:50 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:50 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'small' is installed (using cpu)
+2025-09-25 01:18:51 | whisper_model_manager | DEBUG    | is_model_installed:396  | Model small is installed and ready for use on cuda
+2025-09-25 01:18:51 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:51 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'medium' is installed (using cpu)
+2025-09-25 01:18:53 | whisper_model_manager | DEBUG    | is_model_installed:396  | Model medium is installed and ready for use on cuda
+2025-09-25 01:18:53 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:53 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'large' is installed (using cpu)
+2025-09-25 01:18:53 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-large-v3 from the Hugging Face Hub:
+Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:53 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.
+2025-09-25 01:18:53 | whisper_model_manager | DEBUG    | is_model_installed:400  | Model large not found locally: Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:53 | whisper_model_manager | DEBUG    | get_installed_models:414  | Installed models: ['small', 'medium']
+2025-09-25 01:18:53 | whisper_model_manager | DEBUG    | needs_initial_setup:420  | Needs initial setup: False
+2025-09-25 01:18:53 | amanuensis_main      | INFO     | initialize_app :101  | Whisper model found - setting up transcription
+2025-09-25 01:18:53 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:53 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'tiny' is installed (using cpu)
+2025-09-25 01:18:53 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-tiny from the Hugging Face Hub:
+Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:53 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.
+2025-09-25 01:18:53 | whisper_model_manager | DEBUG    | is_model_installed:400  | Model tiny not found locally: Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:53 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:53 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'base' is installed (using cpu)
+2025-09-25 01:18:53 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-base from the Hugging Face Hub:
+Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:53 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.
+2025-09-25 01:18:53 | whisper_model_manager | DEBUG    | is_model_installed:400  | Model base not found locally: Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:53 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:53 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'small' is installed (using cpu)
+2025-09-25 01:18:54 | whisper_model_manager | DEBUG    | is_model_installed:396  | Model small is installed and ready for use on cuda
+2025-09-25 01:18:54 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:54 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'medium' is installed (using cpu)
+2025-09-25 01:18:57 | whisper_model_manager | DEBUG    | is_model_installed:396  | Model medium is installed and ready for use on cuda
+2025-09-25 01:18:57 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:57 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'large' is installed (using cpu)
+2025-09-25 01:18:57 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-large-v3 from the Hugging Face Hub:
+Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:57 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.
+2025-09-25 01:18:57 | whisper_model_manager | DEBUG    | is_model_installed:400  | Model large not found locally: Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:18:57 | whisper_model_manager | DEBUG    | get_installed_models:414  | Installed models: ['small', 'medium']
+2025-09-25 01:18:57 | whisper_model_manager | INFO     | __init__       :367  | WhisperModelManager initialized with models dir: G:\Projects\Amanuensis\whisper_models
+2025-09-25 01:18:57 | local_whisper        | DEBUG    | load_model     :82   | Loading Whisper model: medium
+2025-09-25 01:18:57 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:57 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'medium' is installed (using cpu)
+2025-09-25 01:18:59 | whisper_model_manager | DEBUG    | is_model_installed:396  | Model medium is installed and ready for use on cuda
+2025-09-25 01:18:59 | transcription_config | INFO     | get_device_config:91   | CUDA detected: NVIDIA GeForce RTX 5060 Ti (15.9GB VRAM) - Using GPU acceleration
+2025-09-25 01:18:59 | whisper_model_manager | DEBUG    | is_model_installed:383  | Checking if model 'medium' is installed (using cpu)
+2025-09-25 01:19:02 | whisper_model_manager | DEBUG    | is_model_installed:396  | Model medium is installed and ready for use on cuda
+2025-09-25 01:19:02 | local_whisper        | DEBUG    | load_model     :95   | Model path resolved to: medium
+2025-09-25 01:19:02 | faster_whisper       | WARNING  | download_model :124  | An error occured while synchronizing the model Systran/faster-whisper-medium from the Hugging Face Hub:
+Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:19:02 | faster_whisper       | WARNING  | download_model :129  | Trying to load the model directly from the local cache, if it exists.
+2025-09-25 01:19:02 | local_whisper        | ERROR    | load_model     :117  | Failed to load model 'medium': Cannot find an appropriate cached snapshot folder for the specified revision on the local disk and outgoing traffic has been disabled. To enable repo look-ups and downloads online, pass 'local_files_only=False' as input.
+2025-09-25 01:19:02 | amanuensis_main      | INFO     | create_windows :170  | Creating application windows...
+2025-09-25 01:19:02 | amanuensis_main      | DEBUG    | create_windows :174  | Creating SessionRecorderWindow...
+2025-09-25 01:19:02 | session_recorder     | INFO     | __init__       :21   | Initializing Session Recorder Window
+2025-09-25 01:19:02 | session_storage      | INFO     | __init__       :86   | SessionStorageManager initialized
+2025-09-25 01:19:02 | session_storage      | INFO     | __init__       :87   |   Recordings: data\recordings
+2025-09-25 01:19:02 | session_storage      | INFO     | __init__       :88   |   Transcripts: data\transcripts
+2025-09-25 01:19:02 | session_recorder     | INFO     | __init__       :57   | Session storage manager initialized
+2025-09-25 01:19:02 | session_recorder     | DEBUG    | __init__       :65   | Setting up UI components...
+2025-09-25 01:19:02 | session_recorder     | DEBUG    | create_menu_bar:438  | Menu bar created successfully
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | wrapper        :205  | CALL: get_audio_devices(1 args, 0 kwargs)
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:57   | Scanning for audio devices...
+2025-09-25 01:19:02 | audio_manager        | INFO     | get_audio_devices:65   | Found 37 audio devices
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 0: 'Input' (raw: 'Microsoft Sound Mapper - Input') - In:2 Out:0
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 1: 'Microphone (TONOR TC30 Audio De' (raw: 'Microphone (TONOR TC30 Audio De') - In:1 Out:0
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 2: 'Microphone (Logi C615 HD WebCam' (raw: 'Microphone (Logi C615 HD WebCam') - In:1 Out:0
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 3: 'Output' (raw: 'Microsoft Sound Mapper - Output') - In:0 Out:2
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 4: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 5: 'Realtek Digital Output (Realtek' (raw: 'Realtek Digital Output (Realtek') - In:0 Out:2
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 6: 'Q27G4N (NVIDIA High Definition ' (raw: 'Q27G4N (NVIDIA High Definition ') - In:0 Out:2
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 7: 'CR340HD (NVIDIA High Definition' (raw: 'CR340HD (NVIDIA High Definition') - In:0 Out:2
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 8: 'LG ULTRAGEAR (NVIDIA High Defin' (raw: 'LG ULTRAGEAR (NVIDIA High Defin') - In:0 Out:2
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 9: 'Primary Sound Capture Driver' (raw: 'Primary Sound Capture Driver') - In:2 Out:0
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 10: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 11: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 12: 'Primary Sound Driver' (raw: 'Primary Sound Driver') - In:0 Out:2
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 13: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 14: 'Realtek Digital Output (Realtek(R) Audio)' (raw: 'Realtek Digital Output (Realtek(R) Audio)') - In:0 Out:2
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 15: 'Q27G4N (NVIDIA High Definition Audio)' (raw: 'Q27G4N (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:02 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 16: 'CR340HD (NVIDIA High Definition Audio)' (raw: 'CR340HD (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 17: 'LG ULTRAGEAR (NVIDIA High Definition Audio)' (raw: 'LG ULTRAGEAR (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 18: 'Realtek Digital Output (Realtek(R) Audio)' (raw: 'Realtek Digital Output (Realtek(R) Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 19: 'Q27G4N (NVIDIA High Definition Audio)' (raw: 'Q27G4N (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 20: 'CR340HD (NVIDIA High Definition Audio)' (raw: 'CR340HD (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 21: 'LG ULTRAGEAR (NVIDIA High Definition Audio)' (raw: 'LG ULTRAGEAR (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 22: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 23: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 24: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 25: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 26: 'Microphone (Realtek HD Audio Mic input)' (raw: 'Microphone (Realtek HD Audio Mic input)') - In:2 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 27: 'SPDIF Out (Realtek HDA SPDIF Out)' (raw: 'SPDIF Out (Realtek HDA SPDIF Out)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 28: 'Line In (Realtek HD Audio Line input)' (raw: 'Line In (Realtek HD Audio Line input)') - In:2 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 29: 'Headphones (Realtek HD Audio 2nd output)' (raw: 'Headphones (Realtek HD Audio 2nd output)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 30: 'Speakers (Realtek HD Audio output)' (raw: 'Speakers (Realtek HD Audio output)') - In:0 Out:8
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 31: 'Stereo Mix (Realtek HD Audio Stereo input)' (raw: 'Stereo Mix (Realtek HD Audio Stereo input)') - In:2 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:89   |   -> Added as SYSTEM RECORDING device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 32: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 33: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 34: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 35: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 36: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | INFO     | get_audio_devices:117  | Device scan complete: 12 input, 24 output, 1 system recording
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | wrapper        :209  | RETURN: get_audio_devices -> dict
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | wrapper        :205  | CALL: get_audio_devices(1 args, 0 kwargs)
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:57   | Scanning for audio devices...
+2025-09-25 01:19:03 | audio_manager        | INFO     | get_audio_devices:65   | Found 37 audio devices
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 0: 'Input' (raw: 'Microsoft Sound Mapper - Input') - In:2 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 1: 'Microphone (TONOR TC30 Audio De' (raw: 'Microphone (TONOR TC30 Audio De') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 2: 'Microphone (Logi C615 HD WebCam' (raw: 'Microphone (Logi C615 HD WebCam') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 3: 'Output' (raw: 'Microsoft Sound Mapper - Output') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 4: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 5: 'Realtek Digital Output (Realtek' (raw: 'Realtek Digital Output (Realtek') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 6: 'Q27G4N (NVIDIA High Definition ' (raw: 'Q27G4N (NVIDIA High Definition ') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 7: 'CR340HD (NVIDIA High Definition' (raw: 'CR340HD (NVIDIA High Definition') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 8: 'LG ULTRAGEAR (NVIDIA High Defin' (raw: 'LG ULTRAGEAR (NVIDIA High Defin') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 9: 'Primary Sound Capture Driver' (raw: 'Primary Sound Capture Driver') - In:2 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 10: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 11: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 12: 'Primary Sound Driver' (raw: 'Primary Sound Driver') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 13: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 14: 'Realtek Digital Output (Realtek(R) Audio)' (raw: 'Realtek Digital Output (Realtek(R) Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 15: 'Q27G4N (NVIDIA High Definition Audio)' (raw: 'Q27G4N (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 16: 'CR340HD (NVIDIA High Definition Audio)' (raw: 'CR340HD (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 17: 'LG ULTRAGEAR (NVIDIA High Definition Audio)' (raw: 'LG ULTRAGEAR (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 18: 'Realtek Digital Output (Realtek(R) Audio)' (raw: 'Realtek Digital Output (Realtek(R) Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 19: 'Q27G4N (NVIDIA High Definition Audio)' (raw: 'Q27G4N (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 20: 'CR340HD (NVIDIA High Definition Audio)' (raw: 'CR340HD (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 21: 'LG ULTRAGEAR (NVIDIA High Definition Audio)' (raw: 'LG ULTRAGEAR (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 22: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 23: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 24: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 25: 'Microphone (Logi C615 HD WebCam)' (raw: 'Microphone (Logi C615 HD WebCam)') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 26: 'Microphone (Realtek HD Audio Mic input)' (raw: 'Microphone (Realtek HD Audio Mic input)') - In:2 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 27: 'SPDIF Out (Realtek HDA SPDIF Out)' (raw: 'SPDIF Out (Realtek HDA SPDIF Out)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 28: 'Line In (Realtek HD Audio Line input)' (raw: 'Line In (Realtek HD Audio Line input)') - In:2 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 29: 'Headphones (Realtek HD Audio 2nd output)' (raw: 'Headphones (Realtek HD Audio 2nd output)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 30: 'Speakers (Realtek HD Audio output)' (raw: 'Speakers (Realtek HD Audio output)') - In:0 Out:8
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 31: 'Stereo Mix (Realtek HD Audio Stereo input)' (raw: 'Stereo Mix (Realtek HD Audio Stereo input)') - In:2 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:89   |   -> Added as SYSTEM RECORDING device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 32: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 33: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 34: 'Output (NVIDIA High Definition Audio)' (raw: 'Output (NVIDIA High Definition Audio)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 35: 'Speakers (Logi Z407)' (raw: 'Speakers (Logi Z407)') - In:0 Out:2
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:111  |   -> Added as OUTPUT device
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:75   | Device 36: 'Microphone (TONOR TC30 Audio Device)' (raw: 'Microphone (TONOR TC30 Audio Device)') - In:1 Out:0
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | get_audio_devices:99   |   -> Added as INPUT device
+2025-09-25 01:19:03 | audio_manager        | INFO     | get_audio_devices:117  | Device scan complete: 12 input, 24 output, 1 system recording
+2025-09-25 01:19:03 | audio_manager        | DEBUG    | wrapper        :209  | RETURN: get_audio_devices -> dict
+2025-09-25 01:19:03 | session_recorder     | DEBUG    | __init__       :68   | Setting up transcription callback...
+2025-09-25 01:19:03 | session_recorder     | INFO     | __init__       :74   | Session Recorder Window initialized successfully
+2025-09-25 01:19:03 | amanuensis_main      | INFO     | log_performance:164  | PERFORMANCE: SessionRecorderWindow init took 0.731s
+2025-09-25 01:19:03 | amanuensis_main      | DEBUG    | create_windows :187  | Creating InsightsDashboard...
+2025-09-25 01:19:03 | amanuensis_main      | INFO     | log_performance:164  | PERFORMANCE: InsightsDashboard init took 0.436s
+2025-09-25 01:19:03 | amanuensis_main      | DEBUG    | create_windows :197  | Hiding dashboard initially...
+2025-09-25 01:19:03 | amanuensis_main      | INFO     | create_windows :200  | Application windows created successfully
+2025-09-25 01:19:03 | amanuensis_main      | INFO     | create_windows :204  | Starting main application loop...
+2025-09-25 01:19:09 | audio_manager        | DEBUG    | wrapper        :205  | CALL: stop_recording(1 args, 0 kwargs)
+2025-09-25 01:19:09 | audio_manager        | INFO     | stop_recording :708  | Stopping audio recording...
+2025-09-25 01:19:09 | audio_manager        | INFO     | stop_recording :736  | Recording stopped - Buffer contains 0.0s (0 chunks)
+2025-09-25 01:19:09 | audio_manager        | DEBUG    | wrapper        :209  | RETURN: stop_recording -> NoneType
+2025-09-25 01:19:09 | main                 | INFO     | log_performance:164  | PERFORMANCE: Full application startup took 19.160s

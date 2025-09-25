@@ -1,0 +1,4 @@
+2025-09-25 13:53:44 | audio_manager        | ERROR    | start_recording:688  | System audio not configured - Device: None, Mode: soundcard_loopback
+2025-09-25 13:53:44 | session_recorder     | ERROR    | start_recording:780  | Recording start failed: System audio not configured
+2025-09-25 13:53:50 | audio_manager        | ERROR    | start_recording:688  | System audio not configured - Device: None, Mode: soundcard_loopback
+2025-09-25 13:53:50 | session_recorder     | ERROR    | start_recording:780  | Recording start failed: System audio not configured

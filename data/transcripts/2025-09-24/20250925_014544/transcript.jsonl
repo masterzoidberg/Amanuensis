@@ -1,0 +1,4 @@
+{"session_id": "20250925_014544", "start_time": "2025-09-25T01:45:44.179361+00:00", "format": "transcript_segments", "version": "1.0"}
+{"timestamp": 1758764744.181361, "end_time": 1758764745.181361, "speaker": "Speaker1", "text": "Hello, how are you?", "confidence": 0.8, "is_partial": false}
+{"timestamp": 1758764746.181361, "end_time": 1758764747.181361, "speaker": "Speaker2", "text": "I'm doing well, thank you.", "confidence": 0.8, "is_partial": false}
+{"timestamp": 1758764748.181361, "end_time": 1758764749.181361, "speaker": "Speaker1", "text": "That's great to hear.", "confidence": 0.8, "is_partial": false}

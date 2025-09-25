@@ -1,0 +1,6 @@
+Therapy Session Transcript
+Session ID: 20250925_015244
+Start Time: 2025-09-25T01:52:44.431568+00:00
+==================================================
+
+[21:52:44] TestSpeaker: Test transcript

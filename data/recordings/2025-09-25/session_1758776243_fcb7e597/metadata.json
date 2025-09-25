@@ -1,0 +1,17 @@
+{
+  "session_id": "session_1758776243_fcb7e597",
+  "date": "2025-09-25",
+  "start_time": "2025-09-25T00:57:23.114383",
+  "end_time": "2025-09-25T00:57:23.116059",
+  "metadata": {
+    "test": true
+  },
+  "stats": {
+    "total_segments": 1,
+    "total_duration": 2.0,
+    "speakers": [
+      "TestSpeaker"
+    ],
+    "start_timestamp": 1758776243.1143837
+  }
+}

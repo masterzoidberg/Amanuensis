@@ -1,0 +1,21 @@
+{
+  "session_id": "session_1758778808_a179d122",
+  "date": "2025-09-25",
+  "start_time": "2025-09-25T01:40:08.815259",
+  "end_time": "2025-09-25T01:45:06.940753",
+  "metadata": {
+    "session_type": "therapy",
+    "client_count": 1,
+    "start_timestamp": "2025-09-25T01:40:08.815259",
+    "audio_devices": {
+      "microphone": "Microphone (TONOR TC30 Audio De",
+      "system_audio": "Stereo Mix (Realtek HD Audio Stereo input)"
+    }
+  },
+  "stats": {
+    "total_segments": 0,
+    "total_duration": 0.0,
+    "speakers": [],
+    "start_timestamp": 1758778808.8152592
+  }
+}
