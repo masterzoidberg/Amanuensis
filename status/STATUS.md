@@ -536,8 +536,95 @@ Successfully hardened the audio bridge to ensure captured frames reliably reach 
 - Implement Git LFS or .gitignore for model files
 - Retry push after resolving large file issues
 
+## 🔍 CRITICAL ARCHITECTURAL ANALYSIS (Sept 26, 2025)
+
+### Reality Check: System Remains Unusable Despite Fixes
+
+**User Report**: "overall still unusable at present" after running 4 targeted Claude Code fixes
+
+**Analysis Result**: ❌ **ARCHITECTURE FUNDAMENTALLY BROKEN**
+
+### Root Cause Analysis - Integration Failures
+
+#### 1. **Silent Exception Masking (Critical Flaw)**
+**Location**: `settings_window.py:465`
+```python
+try:
+    installed_models = self.model_manager.get_installed_models()
+except:  # ← This hides ALL exceptions and returns empty list
+    installed_models = []  # ← UI always shows "Not Downloaded"
+```
+
+**Impact**: Backend correctly detects models as INSTALLED (`['tiny', 'base', 'small', 'medium']`) but UI shows "Not Downloaded" due to silent exception swallowing.
+
+#### 2. **State Persistence Race Conditions**
+**Location**: `audio_manager.py:514-515`
+```python
+if mode in ['wasapi_loopback', 'mic_only']:
+    self.system_audio_device = None  # ← Device cleared unexpectedly
+```
+
+**Pattern**:
+```
+Preflight: ✅ SUCCESS: Soundcard loopback
+Recording: ❌ ERROR: System audio device not configured
+```
+
+**Issue**: Device configuration gets cleared between preflight success and recording attempt.
+
+#### 3. **Integration Context Failures**
+- Backend methods work in isolation but fail in full UI context
+- CustomTkinter threading conflicts cause exceptions
+- CUDA context conflicts during model checking
+- Windows COM/WASAPI state management issues
+
+### Professional Tool Viability: ❌ NOT VIABLE
+
+**Critical Problems**:
+1. **Silent Failures**: Users cannot diagnose when/why operations fail
+2. **State Persistence**: Configuration works in testing, fails in practice
+3. **Integration Brittleness**: Components work alone, fail when combined
+4. **User Trust**: System appears broken even when backend succeeds
+
+### Required Investment: MAJOR RESTRUCTURING (4-7 weeks)
+
+**Not** a "2-3 days of polish" problem. Requires:
+
+**Phase 1: Error Handling Overhaul (1-2 weeks)**
+- Replace all `except:` blocks with specific exception handling
+- Add comprehensive logging and user error feedback
+- Implement proper state validation and recovery
+
+**Phase 2: Architecture Simplification (2-3 weeks)**
+- Consolidate to single-window interface
+- Eliminate unnecessary abstractions
+- Implement synchronous, predictable state management
+
+**Phase 3: Integration Testing (1-2 weeks)**
+- End-to-end workflow validation
+- Windows system integration testing
+- Professional use case validation
+
+### Alternative Recommendation: Simpler Architecture
+
+For professional therapy use requiring **high reliability**:
+
+1. **Single-window interface** with embedded settings
+2. **Synchronous operations** with clear progress feedback
+3. **Minimal abstractions** - direct hardware/model integration
+4. **Fail-fast error handling** with actionable user messages
+5. **State persistence via file-based configuration**
+
+### Final Assessment
+
+**Current Status**: Architecture suffers from **complexity-induced unreliability**. Individual components are sophisticated but integration creates unpredictable behavior unsuitable for professional therapy use.
+
+**Recommendation**: **Simplified architectural rewrite** focused on professional reliability over technical sophistication.
+
+**Evidence**: User assessment "overall still unusable at present" after multiple targeted fixes is accurate. Initial optimistic analysis failed to account for integration complexity and silent failure patterns.
+
 ---
 
-**Implementation Team**: AI Assistant  
-**Review Status**: Complete  
-**Deployment Ready**: ⚠️ PENDING PUSH RESOLUTION
+**Implementation Team**: AI Assistant
+**Review Status**: Complete - HONEST REASSESSMENT
+**Deployment Ready**: ❌ REQUIRES MAJOR RESTRUCTURING
