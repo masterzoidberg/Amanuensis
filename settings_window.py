@@ -13,6 +13,7 @@ import os
 import requests
 from typing import Optional, Callable
 from logger_config import get_logger, log_function_call
+from theme_manager import get_theme_manager, apply_professional_styling
 
 
 class SettingsWindow:
@@ -27,6 +28,12 @@ class SettingsWindow:
         self.audio_manager = audio_manager
         self.whisper_manager = whisper_manager
         self.model_manager = model_manager
+
+        # Get theme manager for consistent styling
+        self.theme_manager = get_theme_manager()
+
+        # Register for theme changes
+        self.theme_manager.register_theme_callback(self.on_theme_changed)
 
         self.setup_ui()
 
@@ -553,17 +560,45 @@ class SettingsWindow:
         self.logger.info(f"Starting download of Whisper model: {model_id}")
 
         if self.model_manager:
-            # Use the integrated download method
-            success = self.model_manager.download_model(model_id)
-            self.on_download_complete(model_id, success)
+            # Update UI to show download in progress
+            self.update_download_status(model_id, "downloading")
+
+            # Use the integrated download method in background thread
+            def download_worker():
+                try:
+                    success = self.model_manager.download_model(model_id)
+                    # Schedule UI update on main thread
+                    self.window.after(0, lambda: self.on_download_complete(model_id, success))
+                except Exception as e:
+                    self.logger.error(f"Download error for {model_id}: {e}")
+                    self.window.after(0, lambda: self.on_download_complete(model_id, False))
+
+            download_thread = threading.Thread(target=download_worker, daemon=True)
+            download_thread.start()
         else:
             # Fallback to download dialog
             DownloadDialog(self.window, model_id, self.on_download_complete)
+
+    def update_download_status(self, model_id: str, status: str):
+        """Update the download status for a specific model in the UI"""
+        try:
+            # Find and update the specific model card's download button
+            # For now, just refresh the entire model list - more efficient approach could target specific card
+            if status == "downloading":
+                self.logger.debug(f"Marking model {model_id} as downloading in UI")
+                # Could implement specific button state changes here
+            elif status == "completed":
+                self.logger.debug(f"Marking model {model_id} as completed in UI")
+                self.update_model_list()
+        except Exception as e:
+            self.logger.warning(f"Failed to update download status for {model_id}: {e}")
 
     def on_download_complete(self, model_id: str, success: bool):
         """Handle model download completion"""
         if success:
             self.logger.info(f"Model {model_id} downloaded successfully")
+            # Update status before showing dialog
+            self.update_download_status(model_id, "completed")
             messagebox.showinfo("Download Complete", f"Model '{model_id}' downloaded successfully!")
             self.update_model_list()
             self.update_whisper_status()
@@ -685,15 +720,78 @@ class SettingsWindow:
         self.buffer_value_label.configure(text=f"{minutes} min")
 
     def change_theme(self, theme):
-        """Change application theme"""
+        """Change application theme globally"""
         self.logger.info(f"Changing theme to: {theme}")
 
-        if theme == "Dark":
-            ctk.set_appearance_mode("dark")
-        elif theme == "Light":
-            ctk.set_appearance_mode("light")
-        elif theme == "System":
-            ctk.set_appearance_mode("system")
+        # Map UI labels to theme manager names
+        theme_map = {
+            "Dark": "dark",
+            "Light": "light",
+            "System": "system"
+        }
+
+        theme_name = theme_map.get(theme, theme.lower())
+
+        # Apply theme globally using theme manager
+        success = self.theme_manager.set_theme(theme_name)
+
+        if success:
+            self.logger.info(f"Successfully changed theme to: {theme_name}")
+        else:
+            self.logger.error(f"Failed to change theme to: {theme_name}")
+            messagebox.showerror("Theme Error", f"Failed to apply {theme} theme")
+
+    def on_theme_changed(self, theme_name: str, theme_config: dict):
+        """Callback when theme changes - update UI styling"""
+        try:
+            self.logger.debug(f"Updating UI for theme change: {theme_name}")
+
+            # Apply professional styling to key elements
+            if hasattr(self, 'window') and self.window.winfo_exists():
+                # The CustomTkinter widgets will automatically update their appearance
+                # but we can add custom professional styling here
+
+                # Update any custom styled elements
+                self.apply_professional_styling()
+
+        except Exception as e:
+            self.logger.warning(f"Failed to update theme styling: {e}")
+
+    def apply_professional_styling(self):
+        """Apply professional styling to settings window"""
+        try:
+            colors = self.theme_manager.get_theme_colors()
+            if not colors:
+                return
+
+            # Apply professional styling to frames and labels if they exist
+            for attr_name in dir(self):
+                attr = getattr(self, attr_name)
+                if hasattr(attr, 'configure') and attr.winfo_exists():
+                    try:
+                        if 'frame' in attr_name.lower():
+                            apply_professional_styling(attr, "frame")
+                        elif 'label' in attr_name.lower():
+                            apply_professional_styling(attr, "label")
+                        elif 'entry' in attr_name.lower():
+                            apply_professional_styling(attr, "entry")
+                    except:
+                        pass  # Ignore styling errors
+
+        except Exception as e:
+            self.logger.debug(f"Professional styling update failed: {e}")
+
+    def close_window(self):
+        """Close the settings window and cleanup"""
+        try:
+            # Unregister theme callback
+            if hasattr(self, 'theme_manager'):
+                self.theme_manager.unregister_theme_callback(self.on_theme_changed)
+
+            if hasattr(self, 'window'):
+                self.window.destroy()
+        except Exception as e:
+            self.logger.warning(f"Error closing settings window: {e}")
 
     def browse_recording_location(self):
         """Browse for recording location"""
@@ -787,6 +885,15 @@ class SettingsWindow:
         def test_worker():
             """Test loopback device in background thread"""
             try:
+                # Initialize COM for WASAPI access in this thread
+                try:
+                    from com_initializer import initialize_com_for_audio
+                    if not initialize_com_for_audio():
+                        raise RuntimeError("Failed to initialize COM for WASAPI audio access")
+                except ImportError:
+                    # COM initializer not available (non-Windows systems)
+                    pass
+
                 from audio_transcription_bridge import resolve_loopback_mic, preflight_loopback
 
                 # Temporarily set the device name
@@ -801,6 +908,14 @@ class SettingsWindow:
 
             except Exception as e:
                 error_msg = str(e)
+                # Provide more helpful error messages for common COM issues
+                if "0x800401f0" in error_msg:
+                    error_msg = "COM initialization failed - try running as administrator"
+                elif "0x80070005" in error_msg:
+                    error_msg = "Audio device access denied - check device permissions"
+                elif "device not found" in error_msg.lower():
+                    error_msg = "Audio device not found or not accessible"
+
                 self.window.after(0, lambda: self.test_device_failed(selected_device, error_msg))
 
         # Start test in background thread

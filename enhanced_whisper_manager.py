@@ -422,7 +422,22 @@ class EnhancedWhisperManager:
         self.logger.info("Transcriber worker stopped")
 
     def get_model_status(self) -> Dict[str, any]:
-        """Get current model status"""
+        """Get current model status including availability of downloaded models"""
+        # Check if the current model is available for loading (downloaded)
+        model_available = False
+        try:
+            # Check if model is already loaded
+            if self.model_loaded:
+                model_available = True
+            else:
+                # Check if model is downloaded and available for loading
+                from whisper_model_downloader import WhisperModelManager
+                model_manager = WhisperModelManager()
+                model_available = model_manager.is_model_installed(self.model_name)
+        except Exception as e:
+            self.logger.debug(f"Error checking model availability: {e}")
+            model_available = False
+
         return {
             'model_name': self.model_name,
             'device': self.device,
@@ -430,6 +445,7 @@ class EnhancedWhisperManager:
             'loaded': self.model_loaded,
             'loading': self.model_loading,
             'available': FASTER_WHISPER_AVAILABLE,
+            'model_downloaded': model_available,  # NEW: indicates if model files are available
             'stats': self.stats.copy()
         }
 

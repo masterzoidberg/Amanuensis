@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import pyaudio
 import numpy as np
 from logger_config import get_logger, log_function_call
+from theme_manager import get_theme_manager, apply_professional_styling
 
 class SessionRecorderWindow:
     """Compact session recording window for live therapy sessions"""
@@ -92,11 +93,11 @@ class SessionRecorderWindow:
                             device = status.get('device', 'unknown')
                             stats = status.get('stats', {})
                             latency = stats.get('average_latency', 0)
-                            
+
                             status_text = f"Model: {model_name} • {device}"
                             if latency > 0:
                                 status_text += f" • {latency:.1f}ms"
-                                
+
                             self.model_status_label.configure(
                                 text=status_text,
                                 text_color="#2CC985"
@@ -106,9 +107,18 @@ class SessionRecorderWindow:
                                 text="Loading model...",
                                 text_color="#F39C12"
                             )
-                        else:
+                        elif status.get('model_downloaded'):
+                            # Model is downloaded but not loaded - show load option
+                            model_name = status.get('model_name', 'unknown')
                             self.model_status_label.configure(
-                                text="Model not loaded",
+                                text=f"Model: {model_name} (ready to load)",
+                                text_color="#F39C12"
+                            )
+                        else:
+                            # No model downloaded
+                            model_name = status.get('model_name', 'unknown')
+                            self.model_status_label.configure(
+                                text=f"Model: {model_name} (not downloaded)",
                                 text_color="#E74C3C"
                             )
                 else:
@@ -130,9 +140,15 @@ class SessionRecorderWindow:
         self.window.resizable(True, True)
         self.window.minsize(400, 500)  # Minimum size to keep UI functional
 
-        # Set appearance
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
+        # Use theme manager for consistent appearance
+        self.theme_manager = get_theme_manager()
+
+        # Apply current theme (don't force dark mode)
+        current_theme = self.theme_manager.get_current_theme()
+        self.logger.debug(f"Using theme: {current_theme}")
+
+        # Register for theme changes
+        self.theme_manager.register_theme_callback(self.on_theme_changed)
 
         # Create menu bar
         self.create_menu_bar()
@@ -1252,6 +1268,87 @@ class SessionRecorderWindow:
                 print(f"Mock transcription error: {e}")
                 break
 
+    def on_theme_changed(self, theme_name: str, theme_config: dict):
+        """Callback when theme changes - update UI styling for professional appearance"""
+        try:
+            self.logger.debug(f"Updating main window for theme change: {theme_name}")
+
+            # Apply professional styling to key elements
+            if hasattr(self, 'window') and self.window.winfo_exists():
+                self.apply_professional_styling()
+
+        except Exception as e:
+            self.logger.warning(f"Failed to update theme styling: {e}")
+
+    def apply_professional_styling(self):
+        """Apply professional styling for therapy use"""
+        try:
+            colors = self.theme_manager.get_theme_colors()
+            if not colors:
+                return
+
+            # Apply professional button styling
+            button_style = self.theme_manager.get_professional_button_style("primary")
+
+            # Update record button with professional styling
+            if hasattr(self, 'record_button'):
+                try:
+                    if not self.is_recording:
+                        success_style = self.theme_manager.get_professional_button_style("success")
+                        self.record_button.configure(**success_style)
+                    else:
+                        danger_style = self.theme_manager.get_professional_button_style("danger")
+                        self.record_button.configure(**danger_style)
+                except Exception as e:
+                    pass  # Ignore styling errors
+
+            # Apply professional styling to frames and other elements
+            for attr_name in ['main_frame', 'header_frame', 'controls_frame', 'status_frame']:
+                if hasattr(self, attr_name):
+                    try:
+                        frame = getattr(self, attr_name)
+                        apply_professional_styling(frame, "frame")
+                    except:
+                        pass
+
+            # Update status colors for better visibility in both themes
+            self.update_status_colors()
+
+        except Exception as e:
+            self.logger.debug(f"Professional styling update failed: {e}")
+
+    def update_status_colors(self):
+        """Update status indicator colors based on theme"""
+        try:
+            colors = self.theme_manager.get_theme_colors()
+            if not colors:
+                return
+
+            # Use theme-appropriate colors for status indicators
+            if hasattr(self, 'status_label'):
+                if self.is_recording:
+                    self.status_label.configure(
+                        text_color=colors.get("accent", "#28A745")  # Success green
+                    )
+                else:
+                    self.status_label.configure(
+                        text_color=colors.get("text_primary", "#212529")
+                    )
+
+            # Update model status colors
+            if hasattr(self, 'model_status_label'):
+                if self.model_status.get('loaded'):
+                    self.model_status_label.configure(
+                        text_color=colors.get("accent", "#28A745")
+                    )
+                else:
+                    self.model_status_label.configure(
+                        text_color=colors.get("warning", "#FFC107")
+                    )
+
+        except Exception as e:
+            self.logger.debug(f"Status color update failed: {e}")
+
     def run(self):
         """Run the session recorder window"""
         self.window.mainloop()
@@ -1261,6 +1358,11 @@ class SessionRecorderWindow:
         self.ui_update_running = False
         if self.is_recording:
             self.stop_recording()
+
+        # Unregister theme callback
+        if hasattr(self, 'theme_manager'):
+            self.theme_manager.unregister_theme_callback(self.on_theme_changed)
+
         self.window.destroy()
 
 class CustomAnalysisDialog:

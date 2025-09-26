@@ -383,7 +383,9 @@ class WhisperModelManager:
             self.logger.debug(f"Checking if model '{model_name}' is installed (using {check_device})")
 
             # First try with local_files_only=True to check if already downloaded
+            # Try both our custom download_root AND default HuggingFace cache location
             try:
+                # Method 1: Check in our custom models directory
                 model = WhisperModel(
                     model_name,
                     device=check_device,
@@ -391,14 +393,29 @@ class WhisperModelManager:
                     download_root=self.models_dir,
                     local_files_only=True  # Don't download, just check if exists
                 )
-                # If we get here, model is installed
+                # If we get here, model is installed in our directory
                 del model  # Free memory
-                self.logger.debug(f"Model {model_name} is installed and ready for use on {device}")
+                self.logger.debug(f"Model {model_name} found in custom models directory")
                 return True
-            except Exception as local_check_error:
-                # Model not found locally - this is expected for first-time use
-                self.logger.debug(f"Model {model_name} not found locally: {local_check_error}")
-                return False
+            except Exception as custom_check_error:
+                self.logger.debug(f"Model {model_name} not found in custom directory: {custom_check_error}")
+
+                # Method 2: Check in default HuggingFace cache (where download_model actually stores files)
+                try:
+                    model = WhisperModel(
+                        model_name,
+                        device=check_device,
+                        compute_type=check_compute_type,
+                        # No download_root specified - use default HF cache
+                        local_files_only=True  # Don't download, just check if exists
+                    )
+                    # If we get here, model is installed in HF cache
+                    del model  # Free memory
+                    self.logger.debug(f"Model {model_name} found in HuggingFace cache")
+                    return True
+                except Exception as hf_check_error:
+                    self.logger.debug(f"Model {model_name} not found in HF cache: {hf_check_error}")
+                    return False
 
         except Exception as e:
             self.logger.debug(f"Model {model_name} availability check failed: {e}")

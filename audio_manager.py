@@ -1,4 +1,3 @@
-import pyaudio
 import wave
 import threading
 import time
@@ -8,26 +7,28 @@ import os
 import queue
 from logger_config import get_logger, log_function_call
 
-# Import soundcard for loopback capture
+# Import python-soundcard for unified audio capture
 try:
     import soundcard as sc
     SOUNDCARD_AVAILABLE = True
 except ImportError:
     SOUNDCARD_AVAILABLE = False
     sc = None
+    raise ImportError("python-soundcard is required for audio capture. Install with: pip install soundcard")
 
 class AudioManager:
     def __init__(self, buffer_duration=180):  # 3 minutes buffer
         self.logger = get_logger('audio_manager')
         self.logger.info("Initializing AudioManager")
 
+        if not SOUNDCARD_AVAILABLE:
+            raise RuntimeError("python-soundcard is required for audio capture. Install with: pip install soundcard")
+
         try:
-            self.pa = pyaudio.PyAudio()
             self.buffer_duration = buffer_duration
             self.sample_rate = 44100
             self.channels = 2  # Stereo for dual-channel
             self.chunk_size = 1024
-            self.format = pyaudio.paInt16
 
             # Audio buffers - using deque for efficient circular buffer
             self.audio_buffer = deque()
@@ -40,9 +41,11 @@ class AudioManager:
             self._thread_running = False
             self._shutdown_event = threading.Event()
 
-            # Device settings
-            self.input_device = None
-            self.system_audio_device = None
+            # Soundcard device references
+            self.microphone_device = None
+            self.system_audio_device = None  # For loopback
+            self.microphone_recorder = None
+            self.loopback_recorder = None
 
             # Volume monitoring (thread-safe)
             self._levels_lock = threading.Lock()
@@ -89,68 +92,59 @@ class AudioManager:
 
     @log_function_call('audio_manager')
     def get_audio_devices(self):
-        """Get list of available audio devices with enhanced filtering"""
-        self.logger.debug("Scanning for audio devices...")
+        """Get list of available audio devices using python-soundcard"""
+        self.logger.debug("Scanning for audio devices using python-soundcard...")
 
         input_devices = []
         output_devices = []
         system_recording_devices = []
 
         try:
-            device_count = self.pa.get_device_count()
-            self.logger.info(f"Found {device_count} audio devices")
+            # Get microphones
+            microphones = sc.all_microphones(include_loopback=False)
+            self.logger.info(f"Found {len(microphones)} microphone devices")
 
-            for i in range(device_count):
-                try:
-                    device_info = self.pa.get_device_info_by_index(i)
-                    device_name = device_info['name']
+            for i, mic in enumerate(microphones):
+                input_devices.append({
+                    'index': i,
+                    'name': mic.name,
+                    'raw_name': mic.name,
+                    'channels': mic.channels if hasattr(mic, 'channels') else 1,
+                    'sample_rate': 44100,  # Default for soundcard
+                    'type': 'input',
+                    'soundcard_device': mic
+                })
+                self.logger.debug(f"  -> Added microphone: {mic.name}")
 
-                    # Clean up device name for better display
-                    clean_name = self._clean_device_name(device_name)
+            # Get speakers (for loopback)
+            speakers = sc.all_speakers()
+            self.logger.info(f"Found {len(speakers)} speaker devices")
 
-                    self.logger.debug(f"Device {i}: '{clean_name}' (raw: '{device_name}') - In:{device_info['maxInputChannels']} Out:{device_info['maxOutputChannels']}")
+            for i, spk in enumerate(speakers):
+                output_devices.append({
+                    'index': i,
+                    'name': spk.name,
+                    'raw_name': spk.name,
+                    'channels': spk.channels if hasattr(spk, 'channels') else 2,
+                    'sample_rate': 44100,  # Default for soundcard
+                    'type': 'output',
+                    'soundcard_device': spk
+                })
+                self.logger.debug(f"  -> Added speaker: {spk.name}")
 
-                    # Input devices (microphones)
-                    if device_info['maxInputChannels'] > 0:
-                        # Check for system recording devices
-                        if self._is_system_recording_device(device_name):
-                            system_recording_devices.append({
-                                'index': i,
-                                'name': clean_name,
-                                'raw_name': device_name,
-                                'channels': device_info['maxInputChannels'],
-                                'sample_rate': device_info['defaultSampleRate'],
-                                'type': 'system_recording'
-                            })
-                            self.logger.debug(f"  -> Added as SYSTEM RECORDING device")
-                        else:
-                            input_devices.append({
-                                'index': i,
-                                'name': clean_name,
-                                'raw_name': device_name,
-                                'channels': device_info['maxInputChannels'],
-                                'sample_rate': device_info['defaultSampleRate'],
-                                'type': 'input'
-                            })
-                            self.logger.debug(f"  -> Added as INPUT device")
+                # Add as system recording device (loopback)
+                system_recording_devices.append({
+                    'index': f"loopback_{i}",
+                    'name': f"{spk.name} (System Audio Loopback)",
+                    'raw_name': spk.name,
+                    'channels': 2,  # Loopback is typically stereo
+                    'sample_rate': 44100,
+                    'type': 'system_loopback',
+                    'soundcard_device': spk
+                })
+                self.logger.debug(f"  -> Added loopback for: {spk.name}")
 
-                    # Output devices (speakers/headphones)
-                    if device_info['maxOutputChannels'] > 0:
-                        output_devices.append({
-                            'index': i,
-                            'name': clean_name,
-                            'raw_name': device_name,
-                            'channels': device_info['maxOutputChannels'],
-                            'sample_rate': device_info['defaultSampleRate'],
-                            'type': 'output'
-                        })
-                        self.logger.debug(f"  -> Added as OUTPUT device")
-
-                except Exception as e:
-                    self.logger.warning(f"Error reading device {i}: {e}")
-                    continue
-
-            self.logger.info(f"Device scan complete: {len(input_devices)} input, {len(output_devices)} output, {len(system_recording_devices)} system recording")
+            self.logger.info(f"Device scan complete: {len(input_devices)} microphones, {len(output_devices)} speakers, {len(system_recording_devices)} loopback devices")
 
             return {
                 'input_devices': input_devices,
@@ -184,86 +178,16 @@ class AudioManager:
         return name
 
     def supports_wasapi_loopback(self):
-        """Check if WASAPI host API is available for loopback capture"""
-        try:
-            # Check if we're on Windows
-            import platform
-            if platform.system() != 'Windows':
-                self.logger.debug("WASAPI loopback not supported on non-Windows systems")
-                return False
-            
-            # Check if PyAudio has WASAPI support
-            host_api_count = self.pa.get_host_api_count()
-            for i in range(host_api_count):
-                try:
-                    host_api_info = self.pa.get_host_api_info_by_index(i)
-                    if host_api_info['name'].lower() == 'wasapi':
-                        self.logger.debug(f"WASAPI host API found: {host_api_info['name']}")
-                        return True
-                except Exception as e:
-                    self.logger.debug(f"Error checking host API {i}: {e}")
-                    continue
-            
-            self.logger.debug("WASAPI host API not found")
-            return False
-            
-        except Exception as e:
-            self.logger.error(f"Error checking WASAPI support: {e}")
-            return False
+        """Check if WASAPI is supported (deprecated - use soundcard instead)"""
+        # WASAPI loopback is deprecated in favor of soundcard loopback
+        self.logger.debug("WASAPI loopback deprecated - use soundcard_loopback instead")
+        return False
 
     def open_system_loopback_stream(self):
-        """Open a WASAPI output device in loopback mode for system audio capture"""
-        try:
-            if not self.supports_wasapi_loopback():
-                self.logger.debug("WASAPI loopback not supported")
-                return None
-            
-            # Find WASAPI host API
-            host_api_count = self.pa.get_host_api_count()
-            wasapi_host_api = None
-            
-            for i in range(host_api_count):
-                try:
-                    host_api_info = self.pa.get_host_api_info_by_index(i)
-                    if host_api_info['name'].lower() == 'wasapi':
-                        wasapi_host_api = i
-                        break
-                except Exception as e:
-                    self.logger.debug(f"Error checking host API {i}: {e}")
-                    continue
-            
-            if wasapi_host_api is None:
-                self.logger.debug("WASAPI host API not found")
-                return None
-            
-            # Find default output device for WASAPI
-            default_output = self.pa.get_default_output_device_info()
-            self.logger.debug(f"Default output device: {default_output['name']}")
-            
-            # Open stream in loopback mode
-            stream = self.pa.open(
-                format=self.format,
-                channels=2,  # Stereo
-                rate=44100,  # 44.1kHz
-                input=True,
-                input_device_index=default_output['index'],
-                frames_per_buffer=1024,
-                stream_callback=None,
-                host_api_specific_stream_info={
-                    'host_api': wasapi_host_api,
-                    'flags': 0x00000001  # paWinWasapiLoopback flag
-                }
-            )
-            
-            self.logger.info(f"WASAPI loopback stream opened successfully for device: {default_output['name']}")
-            return stream
-            
-        except OSError as e:
-            self.logger.warning(f"WASAPI loopback stream failed (OSError): {e}")
-            return None
-        except Exception as e:
-            self.logger.warning(f"WASAPI loopback stream failed: {e}")
-            return None
+        """Open a system loopback stream (deprecated - use soundcard instead)"""
+        # WASAPI loopback is deprecated in favor of soundcard loopback
+        self.logger.debug("WASAPI loopback deprecated - use soundcard_loopback instead")
+        return None
 
     def supports_soundcard_loopback(self):
         """Check if soundcard module is available for loopback capture"""
@@ -400,39 +324,38 @@ class AudioManager:
         return system_devices
 
     def test_device(self, device_index, device_type='input', duration=2):
-        """Test a specific audio device"""
+        """Test a specific audio device using soundcard"""
         try:
             if device_type == 'input':
-                stream = self.pa.open(
-                    format=self.format,
-                    channels=1,
-                    rate=self.sample_rate,
-                    input=True,
-                    input_device_index=device_index,
-                    frames_per_buffer=self.chunk_size
-                )
+                microphones = sc.all_microphones(include_loopback=False)
+                if not (0 <= device_index < len(microphones)):
+                    return False, f"Device index {device_index} out of range"
 
-                print(f"Testing device {device_index} for {duration} seconds...")
+                mic = microphones[device_index]
+                self.logger.info(f"Testing microphone '{mic.name}' for {duration} seconds...")
+
                 max_level = 0
-                total_samples = int(duration * self.sample_rate / self.chunk_size)
+                test_frames = int(duration * self.sample_rate)
 
-                for i in range(total_samples):
-                    try:
-                        data = stream.read(self.chunk_size, exception_on_overflow=False)
-                        audio_data = np.frombuffer(data, dtype=np.int16)
-                        level = np.sqrt(np.mean(audio_data**2))
-                        max_level = max(max_level, level)
+                with mic.recorder(samplerate=self.sample_rate, channels=1) as recorder:
+                    # Record in chunks to monitor progress
+                    chunk_duration = 0.25  # 250ms chunks
+                    chunk_frames = int(chunk_duration * self.sample_rate)
+                    chunks = int(test_frames / chunk_frames)
 
-                        if i % 10 == 0:  # Print progress
-                            print(f"Level: {level:.0f}")
-                    except Exception as e:
-                        print(f"Read error: {e}")
-                        continue
+                    for i in range(chunks):
+                        try:
+                            audio_data = recorder.record(numframes=chunk_frames)
+                            level = np.sqrt(np.mean(audio_data**2))
+                            max_level = max(max_level, level)
 
-                stream.stop_stream()
-                stream.close()
+                            if i % 4 == 0:  # Print every ~1 second
+                                print(f"Level: {level:.4f}")
+                        except Exception as e:
+                            print(f"Read error: {e}")
+                            continue
 
-                return True, f"Test completed. Max level: {max_level:.0f}"
+                return True, f"Test completed. Max level: {max_level:.4f}"
 
             else:
                 return False, "Output device testing not supported"
@@ -441,81 +364,139 @@ class AudioManager:
             return False, f"Device test failed: {str(e)}"
 
     def get_device_info(self, device_index):
-        """Get detailed information about a specific device"""
+        """Get detailed information about a specific device using soundcard"""
         try:
-            info = self.pa.get_device_info_by_index(device_index)
-            return {
-                'name': info['name'],
-                'max_input_channels': info['maxInputChannels'],
-                'max_output_channels': info['maxOutputChannels'],
-                'default_sample_rate': info['defaultSampleRate'],
-                'default_low_input_latency': info['defaultLowInputLatency'],
-                'default_low_output_latency': info['defaultLowOutputLatency'],
-                'default_high_input_latency': info['defaultHighInputLatency'],
-                'default_high_output_latency': info['defaultHighOutputLatency']
-            }
+            # Get microphones and speakers
+            microphones = sc.all_microphones(include_loopback=False)
+            speakers = sc.all_speakers()
+
+            # Check microphones first
+            if 0 <= device_index < len(microphones):
+                mic = microphones[device_index]
+                return {
+                    'name': mic.name,
+                    'max_input_channels': getattr(mic, 'channels', 1),
+                    'max_output_channels': 0,
+                    'default_sample_rate': 44100,
+                    'type': 'microphone'
+                }
+
+            # Check speakers (offset by microphone count)
+            speaker_index = device_index - len(microphones)
+            if 0 <= speaker_index < len(speakers):
+                spk = speakers[speaker_index]
+                return {
+                    'name': spk.name,
+                    'max_input_channels': 0,
+                    'max_output_channels': getattr(spk, 'channels', 2),
+                    'default_sample_rate': 44100,
+                    'type': 'speaker'
+                }
+
+            return {'error': f'Device index {device_index} out of range'}
+
         except Exception as e:
             return {'error': str(e)}
 
     def set_input_device(self, device_index):
-        """Set the microphone input device"""
-        self.logger.info(f"Setting input device to index {device_index}")
+        """Set the microphone input device (deprecated - use set_microphone_device)"""
+        self.logger.info(f"Deprecated method set_input_device called with index {device_index}")
+        self.logger.info("Use set_microphone_device instead for python-soundcard compatibility")
+
+        # Try to find the device by index in available microphones
         try:
-            device_info = self.pa.get_device_info_by_index(device_index)
-            input_channels = device_info['maxInputChannels']
-
-            # Validate that this device can actually record
-            if input_channels == 0:
-                error_msg = f"Device '{device_info['name']}' has 0 input channels - cannot be used for recording"
+            microphones = sc.all_microphones(include_loopback=False)
+            if 0 <= device_index < len(microphones):
+                return self.set_microphone_device(device_index)
+            else:
+                error_msg = f"Device index {device_index} out of range (0-{len(microphones)-1})"
                 self.logger.error(error_msg)
-                self.logger.error("This appears to be an output device. Please select a microphone or input device.")
-                self.input_device = None
                 return False, error_msg
-
-            self.logger.info(f"Input device set: '{device_info['name']}' (channels: {input_channels})")
-            self.input_device = device_index
-            return True, f"Input device set: {device_info['name']}"
-
         except Exception as e:
             error_msg = f"Failed to set input device {device_index}: {e}"
             self.logger.error(error_msg)
-            self.input_device = None
             return False, error_msg
 
-    def set_system_audio_device(self, device_index):
-        """Set the system audio input device (e.g., Stereo Mix)"""
-        self.logger.info(f"Setting system audio device to index {device_index}")
-
-        # Handle placeholder device
-        if device_index == -1:
-            error_msg = "Cannot set placeholder system audio device. Please enable Stereo Mix in Windows."
-            self.logger.warning(error_msg)
-            self.system_audio_device = None
-            return False, error_msg
+    def set_microphone_device(self, device_name_or_index):
+        """Set the microphone device using soundcard"""
+        self.logger.info(f"Setting microphone device: {device_name_or_index}")
 
         try:
-            device_info = self.pa.get_device_info_by_index(device_index)
-            input_channels = device_info['maxInputChannels']
+            microphones = sc.all_microphones(include_loopback=False)
 
-            # Validate that this device can actually record
-            if input_channels == 0:
-                error_msg = f"Device '{device_info['name']}' has 0 input channels - cannot be used for recording"
+            # Handle selection by name (preferred) or index
+            target_mic = None
+            if isinstance(device_name_or_index, str):
+                # Search by name (case insensitive, partial match)
+                for mic in microphones:
+                    if device_name_or_index.lower() in mic.name.lower():
+                        target_mic = mic
+                        break
+                if not target_mic:
+                    # Try exact match
+                    for mic in microphones:
+                        if mic.name == device_name_or_index:
+                            target_mic = mic
+                            break
+            else:
+                # Selection by index
+                if 0 <= device_name_or_index < len(microphones):
+                    target_mic = microphones[device_name_or_index]
+
+            if not target_mic:
+                available = [mic.name for mic in microphones]
+                error_msg = f"Microphone '{device_name_or_index}' not found. Available: {available}"
                 self.logger.error(error_msg)
-                self.logger.error("This appears to be an output device. System audio requires an input device like Stereo Mix.")
-                self.system_audio_device = None
                 return False, error_msg
 
-            self.logger.info(f"System audio device set: '{device_info['name']}' (channels: {input_channels})")
-            self.system_audio_device = device_index
-            # Clear any special mode when setting a device
-            if hasattr(self, 'system_audio_mode'):
-                delattr(self, 'system_audio_mode')
-            return True, f"System audio device set: {device_info['name']}"
+            self.microphone_device = target_mic
+            self.logger.info(f"Microphone device set: '{target_mic.name}'")
+            return True, f"Microphone device set: {target_mic.name}"
 
         except Exception as e:
-            error_msg = f"Failed to set system audio device {device_index}: {e}"
+            error_msg = f"Failed to set microphone device: {e}"
             self.logger.error(error_msg)
-            self.system_audio_device = None
+            return False, error_msg
+
+    def set_system_audio_device(self, speaker_name_or_index):
+        """Set the system audio device (speaker for loopback) using soundcard"""
+        self.logger.info(f"Setting system audio device (speaker loopback): {speaker_name_or_index}")
+
+        try:
+            speakers = sc.all_speakers()
+
+            # Handle selection by name (preferred) or index
+            target_speaker = None
+            if isinstance(speaker_name_or_index, str):
+                # Search by name (case insensitive, partial match)
+                for spk in speakers:
+                    if speaker_name_or_index.lower() in spk.name.lower():
+                        target_speaker = spk
+                        break
+                if not target_speaker:
+                    # Try exact match
+                    for spk in speakers:
+                        if spk.name == speaker_name_or_index:
+                            target_speaker = spk
+                            break
+            else:
+                # Selection by index
+                if 0 <= speaker_name_or_index < len(speakers):
+                    target_speaker = speakers[speaker_name_or_index]
+
+            if not target_speaker:
+                available = [spk.name for spk in speakers]
+                error_msg = f"Speaker '{speaker_name_or_index}' not found. Available: {available}"
+                self.logger.error(error_msg)
+                return False, error_msg
+
+            self.system_audio_device = target_speaker
+            self.logger.info(f"System audio device (loopback) set: '{target_speaker.name}'")
+            return True, f"System audio device set: {target_speaker.name}"
+
+        except Exception as e:
+            error_msg = f"Failed to set system audio device: {e}"
+            self.logger.error(error_msg)
             return False, error_msg
 
     def set_system_audio_mode(self, mode):
@@ -529,9 +510,10 @@ class AudioManager:
             return False, error_msg
         
         self.system_audio_mode = mode
-        # Clear device index when using special modes
-        if mode in ['soundcard_loopback', 'wasapi_loopback', 'mic_only']:
+        # Clear device only for modes that don't need device reference
+        if mode in ['wasapi_loopback', 'mic_only']:
             self.system_audio_device = None
+        # Note: soundcard_loopback mode KEEPS the system_audio_device for loopback microphone creation
         
         self.logger.info(f"System audio mode set to: {mode}")
         return True, f"System audio mode set to: {mode}"
@@ -582,32 +564,28 @@ class AudioManager:
                 self.logger.debug("Mic-only preflight: SUCCESS (no system audio)")
                 return True
             
-            # Handle device index
+            # Handle device index - assume it's a microphone index
             try:
-                device_info = self.pa.get_device_info_by_index(device_id)
-                device_name = device_info['name']
-                
-                # Check if device has input channels
-                if device_info['maxInputChannels'] == 0:
-                    self.logger.debug(f"Preflight failed: Device '{device_name}' has no input channels")
+                microphones = sc.all_microphones(include_loopback=False)
+                if not (0 <= device_id < len(microphones)):
+                    self.logger.debug(f"Preflight failed: Device index {device_id} out of range")
                     return False
-                
+
+                mic = microphones[device_id]
+                device_name = mic.name
+
                 # Try to open the device briefly
-                test_stream = self.pa.open(
-                    format=self.format,
-                    channels=1,
-                    rate=self.sample_rate,
-                    input=True,
-                    input_device_index=device_id,
-                    frames_per_buffer=self.chunk_size
-                )
-                
-                # Close immediately
-                test_stream.close()
-                
-                self.logger.debug(f"Preflight SUCCESS: Device '{device_name}' (index {device_id})")
-                return True
-                
+                try:
+                    test_frames = int(self.sample_rate * 0.1)  # 100ms test
+                    with mic.recorder(samplerate=self.sample_rate, channels=1) as recorder:
+                        _ = recorder.record(numframes=test_frames)
+
+                    self.logger.debug(f"Preflight SUCCESS: Device '{device_name}' (index {device_id})")
+                    return True
+                except Exception as e:
+                    self.logger.debug(f"Preflight FAILED: Device '{device_name}' - {str(e)}")
+                    return False
+
             except Exception as e:
                 self.logger.debug(f"Preflight FAILED: Device {device_id} - {str(e)}")
                 return False
@@ -617,50 +595,35 @@ class AudioManager:
             return False
 
     def test_audio_levels(self, duration=5):
-        """Test audio levels for both input sources"""
-        if self.input_device is None or self.system_audio_device is None:
+        """Test audio levels for both input sources using soundcard"""
+        if self.microphone_device is None or self.system_audio_device is None:
             return False, "Devices not configured"
 
         try:
-            # Test microphone
-            mic_stream = self.pa.open(
-                format=self.format,
-                channels=1,
-                rate=self.sample_rate,
-                input=True,
-                input_device_index=self.input_device,
-                frames_per_buffer=self.chunk_size
-            )
+            # Get loopback microphone for system audio
+            loopback_mic = sc.get_microphone(id=self.system_audio_device.name, include_loopback=True)
 
-            # Test system audio
-            system_stream = self.pa.open(
-                format=self.format,
-                channels=1,
-                rate=self.sample_rate,
-                input=True,
-                input_device_index=self.system_audio_device,
-                frames_per_buffer=self.chunk_size
-            )
+            print(f"Testing audio levels for {duration} seconds...")
+            chunk_duration = 0.25  # 250ms chunks
+            chunk_frames = int(chunk_duration * self.sample_rate)
+            total_chunks = int(duration / chunk_duration)
 
-            print("Testing audio levels for 5 seconds...")
-            for i in range(int(duration * self.sample_rate / self.chunk_size)):
-                # Read from microphone
-                mic_data = mic_stream.read(self.chunk_size)
-                mic_audio = np.frombuffer(mic_data, dtype=np.int16)
-                self.mic_level = np.sqrt(np.mean(mic_audio**2))
+            with self.microphone_device.recorder(samplerate=self.sample_rate, channels=1) as mic_rec:
+                with loopback_mic.recorder(samplerate=self.sample_rate, channels=2) as sys_rec:
+                    for i in range(total_chunks):
+                        # Read from microphone
+                        mic_data = mic_rec.record(numframes=chunk_frames)
+                        mic_level = np.sqrt(np.mean(mic_data**2))
 
-                # Read from system audio
-                system_data = system_stream.read(self.chunk_size)
-                system_audio = np.frombuffer(system_data, dtype=np.int16)
-                self.system_level = np.sqrt(np.mean(system_audio**2))
+                        # Read from system audio (take left channel for level calculation)
+                        system_data = sys_rec.record(numframes=chunk_frames)
+                        sys_level = np.sqrt(np.mean(system_data[:, 0]**2))
 
-                if i % 10 == 0:  # Print every ~0.25 seconds
-                    print(f"Mic: {self.mic_level:.0f} | System: {self.system_level:.0f}")
+                        # Update thread-safe levels
+                        self._update_levels_thread_safe(mic_level, sys_level, i * chunk_duration)
 
-            mic_stream.stop_stream()
-            mic_stream.close()
-            system_stream.stop_stream()
-            system_stream.close()
+                        if i % 4 == 0:  # Print every ~1 second
+                            print(f"Mic: {mic_level:.4f} | System: {sys_level:.4f}")
 
             return True, "Audio test completed"
 
@@ -669,100 +632,68 @@ class AudioManager:
 
     @log_function_call('audio_manager')
     def start_recording(self):
-        """Start dual-channel audio recording"""
-        self.logger.info("Starting audio recording...")
+        """Start concurrent dual-channel audio recording using python-soundcard"""
+        self.logger.info("Starting concurrent audio recording with python-soundcard...")
 
         if self.recording:
             self.logger.warning("Recording already in progress")
             return False, "Already recording"
 
-        if self.input_device is None:
-            self.logger.error(f"Input device not configured - Input: {self.input_device}")
-            return False, "Input device not configured"
-        
-        # Check if we have a system audio device or special mode
-        has_system_audio = (self.system_audio_device is not None or 
-                          hasattr(self, 'system_audio_mode') and self.system_audio_mode in ['wasapi_loopback', 'mic_only'])
-        
-        if not has_system_audio:
-            self.logger.error(f"System audio not configured - Device: {self.system_audio_device}, Mode: {getattr(self, 'system_audio_mode', None)}")
-            return False, "System audio not configured"
+        # Validate devices are configured
+        if self.microphone_device is None:
+            self.logger.error("Microphone device not configured")
+            return False, "Microphone device not configured"
 
-        # Validate device capabilities before attempting recording
+        # Check system audio device based on mode
+        system_audio_mode = getattr(self, 'system_audio_mode', 'soundcard_loopback')
+        if system_audio_mode == 'mic_only':
+            # Mic-only mode doesn't need system audio device
+            self.logger.debug("Mic-only mode: system audio device not required")
+        elif system_audio_mode in ['soundcard_loopback', 'wasapi_loopback']:
+            # Loopback modes need a configured device
+            if self.system_audio_device is None:
+                self.logger.error(f"System audio device required for {system_audio_mode} mode but not configured")
+                return False, f"System audio device not configured for {system_audio_mode} mode"
+            self.logger.debug(f"System audio device configured for {system_audio_mode}: {self.system_audio_device.name}")
+        else:
+            # Traditional device mode
+            if self.system_audio_device is None:
+                self.logger.error("System audio device (speaker for loopback) not configured")
+                return False, "System audio device not configured"
+
+        # Test devices using soundcard
         try:
-            # Check microphone device
-            mic_info = self.pa.get_device_info_by_index(self.input_device)
-            if mic_info['maxInputChannels'] == 0:
-                self.logger.error(f"Microphone device {self.input_device} ({mic_info['name']}) has no input channels")
-                return False, f"Invalid microphone device: {mic_info['name']} (0 input channels)"
+            self.logger.debug("Testing soundcard devices...")
 
-            # Test device compatibility by attempting to open streams briefly
-            self.logger.debug("Testing device compatibility...")
-            
-            # Test microphone device
+            # Test microphone
             try:
-                test_mic_stream = self.pa.open(
-                    format=self.format,
-                    channels=1,
-                    rate=self.sample_rate,
-                    input=True,
-                    input_device_index=self.input_device,
-                    frames_per_buffer=self.chunk_size
-                )
-                test_mic_stream.close()
-                self.logger.debug(f"Microphone device test passed: {mic_info['name']}")
-            except Exception as mic_test_error:
-                self.logger.error(f"Microphone device test failed: {mic_test_error}")
-                return False, f"Microphone device '{mic_info['name']}' is not compatible: {str(mic_test_error)}"
+                # Brief test recording
+                with self.microphone_device.recorder(samplerate=self.sample_rate, channels=1) as mic_rec:
+                    _ = mic_rec.record(numframes=int(self.sample_rate * 0.1))  # 100ms test
+                self.logger.debug(f"Microphone test passed: {self.microphone_device.name}")
+            except Exception as mic_error:
+                self.logger.error(f"Microphone test failed: {mic_error}")
+                return False, f"Microphone '{self.microphone_device.name}' test failed: {str(mic_error)}"
 
-            # Test system audio based on mode
-            system_audio_mode = getattr(self, 'system_audio_mode', 'device')
-            
-            if system_audio_mode == 'wasapi_loopback':
-                # Test WASAPI loopback
-                try:
-                    test_loopback_stream = self.open_system_loopback_stream()
-                    if test_loopback_stream:
-                        test_loopback_stream.close()
-                        self.logger.debug("WASAPI loopback test passed")
-                    else:
-                        self.logger.error("WASAPI loopback test failed")
-                        return False, "WASAPI loopback is not available"
-                except Exception as loopback_test_error:
-                    self.logger.error(f"WASAPI loopback test failed: {loopback_test_error}")
-                    return False, f"WASAPI loopback test failed: {str(loopback_test_error)}"
-                    
-            elif system_audio_mode == 'mic_only':
-                # Mic-only mode - no system audio testing needed
-                self.logger.debug("Mic-only mode - skipping system audio test")
-                
+            # Test system audio (loopback) if needed based on mode
+            if system_audio_mode == 'mic_only':
+                self.logger.debug("Mic-only mode: skipping system audio test")
+                validation_msg = f"Device validation passed - Mic: {self.microphone_device.name} (mic-only mode)"
             else:
-                # Traditional device-based system audio
-                sys_info = self.pa.get_device_info_by_index(self.system_audio_device)
-                if sys_info['maxInputChannels'] == 0:
-                    self.logger.error(f"System audio device {self.system_audio_device} ({sys_info['name']}) has no input channels")
-                    return False, f"Invalid system audio device: {sys_info['name']} (0 input channels)"
-
                 try:
-                    test_sys_stream = self.pa.open(
-                        format=self.format,
-                        channels=1,
-                        rate=self.sample_rate,
-                        input=True,
-                        input_device_index=self.system_audio_device,
-                        frames_per_buffer=self.chunk_size
-                    )
-                    test_sys_stream.close()
-                    self.logger.debug(f"System audio device test passed: {sys_info['name']}")
-                except Exception as sys_test_error:
-                    self.logger.error(f"System audio device test failed: {sys_test_error}")
-                    # Provide specific guidance for Stereo Mix issues
-                    error_guidance = f"System audio device '{sys_info['name']}' is not compatible: {str(sys_test_error)}"
-                    if "Stereo Mix" in sys_info['name'] or "Unanticipated host error" in str(sys_test_error):
-                        error_guidance += "\n\nTip: Stereo Mix may be disabled in Windows. Try:\n1. Right-click sound icon → Sounds → Recording tab\n2. Right-click empty space → Show Disabled Devices\n3. Enable Stereo Mix if available\n4. Or select a different system audio device"
-                    return False, error_guidance
+                    # Get loopback microphone for the speaker
+                    loopback_mic = sc.get_microphone(id=self.system_audio_device.name, include_loopback=True)
+                    # Brief test recording
+                    with loopback_mic.recorder(samplerate=self.sample_rate, channels=2) as sys_rec:
+                        _ = sys_rec.record(numframes=int(self.sample_rate * 0.1))  # 100ms test
+                    self.logger.debug(f"System audio loopback test passed: {self.system_audio_device.name}")
+                except Exception as sys_error:
+                    self.logger.error(f"System audio test failed: {sys_error}")
+                    return False, f"System audio loopback '{self.system_audio_device.name}' test failed: {str(sys_error)}"
 
-            self.logger.debug(f"Device validation passed - Mic: {mic_info['name']} ({mic_info['maxInputChannels']} ch), System mode: {system_audio_mode}")
+                validation_msg = f"Device validation passed - Mic: {self.microphone_device.name}, Loopback: {self.system_audio_device.name}"
+
+            self.logger.debug(validation_msg)
 
         except Exception as e:
             self.logger.error(f"Device validation failed: {e}")
@@ -772,12 +703,26 @@ class AudioManager:
             self.recording = True
             self.audio_buffer.clear()
 
-            self.logger.debug("Creating recording thread...")
-            self.recording_thread = threading.Thread(target=self._recording_loop)
+            # Initialize soundcard recorders
+            self.logger.debug("Creating concurrent soundcard recorders...")
+            self.microphone_recorder = self.microphone_device.recorder(samplerate=self.sample_rate, channels=1)
+
+            # Initialize system audio recorder based on mode
+            if system_audio_mode == 'mic_only':
+                self.logger.debug("Mic-only mode: no system audio recorder needed")
+                self.loopback_recorder = None
+            else:
+                # Get loopback microphone for system audio
+                loopback_mic = sc.get_microphone(id=self.system_audio_device.name, include_loopback=True)
+                self.loopback_recorder = loopback_mic.recorder(samplerate=self.sample_rate, channels=2)
+                self.logger.debug(f"Loopback recorder created for: {self.system_audio_device.name}")
+
+            self.logger.debug("Starting concurrent recording threads...")
+            self.recording_thread = threading.Thread(target=self._concurrent_recording_loop)
             self.recording_thread.daemon = True
             self.recording_thread.start()
 
-            self.logger.info("Audio recording started successfully")
+            self.logger.info("Concurrent soundcard recording started successfully")
             return True, "Recording started"
 
         except Exception as e:
@@ -785,13 +730,10 @@ class AudioManager:
             self.recording = False
             return False, f"Recording start failed: {str(e)}"
 
-    def _recording_loop(self):
-        """Main recording loop running in separate thread with full exception isolation"""
-        self.logger.debug("Recording loop thread started")
+    def _concurrent_recording_loop(self):
+        """Concurrent recording loop using python-soundcard for both mic and system audio"""
+        self.logger.debug("Concurrent recording loop thread started")
         self._thread_running = True
-
-        mic_stream = None
-        system_stream = None
 
         try:
             # Notify GUI that thread is starting
@@ -805,47 +747,18 @@ class AudioManager:
             if self._shutdown_event.is_set():
                 self.logger.info("Shutdown requested before recording start")
                 return
-            # Open microphone stream
-            self.logger.debug(f"Opening microphone stream (device {self.input_device})")
-            mic_stream = self.pa.open(
-                format=self.format,
-                channels=1,
-                rate=self.sample_rate,
-                input=True,
-                input_device_index=self.input_device,
-                frames_per_buffer=self.chunk_size
-            )
 
-            # Open system audio stream based on mode
-            system_audio_mode = getattr(self, 'system_audio_mode', 'device')
-            
-            if system_audio_mode == 'soundcard_loopback':
-                self.logger.debug("Opening soundcard loopback stream")
-                self.soundcard_loopback_mic = self.open_soundcard_loopback_stream()
-                if not self.soundcard_loopback_mic:
-                    self.logger.error("Failed to open soundcard loopback stream")
-                    return
-                system_stream = None  # Will be handled by soundcard thread
-            elif system_audio_mode == 'wasapi_loopback':
-                self.logger.debug("Opening WASAPI loopback stream")
-                system_stream = self.open_system_loopback_stream()
-                if not system_stream:
-                    self.logger.error("Failed to open WASAPI loopback stream")
-                    return
-            elif system_audio_mode == 'mic_only':
-                self.logger.debug("Mic-only mode - no system audio stream")
-                system_stream = None
+            # Get system audio mode for recording loop
+            system_audio_mode = getattr(self, 'system_audio_mode', 'soundcard_loopback')
+
+            # Setup loopback microphone based on mode
+            if system_audio_mode == 'mic_only':
+                loopback_mic = None
+                self.logger.debug("Mic-only mode: no system audio capture")
             else:
-                # Traditional device-based system audio
-                self.logger.debug(f"Opening system audio stream (device {self.system_audio_device})")
-                system_stream = self.pa.open(
-                    format=self.format,
-                    channels=1,
-                    rate=self.sample_rate,
-                    input=True,
-                    input_device_index=self.system_audio_device,
-                    frames_per_buffer=self.chunk_size
-                )
+                # Get loopback microphone for system audio
+                loopback_mic = sc.get_microphone(id=self.system_audio_device.name, include_loopback=True)
+                self.logger.debug(f"Loopback microphone ready for: {self.system_audio_device.name}")
 
             buffer_max_size = int(self.buffer_duration * self.sample_rate / self.chunk_size)
             self.logger.info(f"Recording loop ready - Buffer max size: {buffer_max_size} chunks ({self.buffer_duration}s)")
@@ -860,93 +773,25 @@ class AudioManager:
                 'message': 'Recording loop active'
             })
 
-            while self.recording and not self._shutdown_event.is_set():
-                try:
-                    # Check for commands from GUI
-                    try:
-                        command = self.command_queue.get_nowait()
-                        if command['command'] == 'stop':
-                            self.logger.debug("Stop command received from GUI")
-                            break
-                    except queue.Empty:
-                        pass
-                    # Read from microphone
-                    mic_data = mic_stream.read(self.chunk_size, exception_on_overflow=False)
-                    mic_audio = np.frombuffer(mic_data, dtype=np.int16)
-                    mic_level = np.sqrt(np.mean(mic_audio**2))
+            # Open recorders based on mode
+            with self.microphone_device.recorder(samplerate=self.sample_rate, channels=1) as mic_rec:
+                if loopback_mic is not None:
+                    # Dual-stream mode (mic + loopback)
+                    with loopback_mic.recorder(samplerate=self.sample_rate, channels=2) as sys_rec:
+                        self.logger.debug("Both soundcard recorders opened successfully")
+                        self._recording_loop_dual_stream(mic_rec, sys_rec)
+                else:
+                    # Mic-only mode
+                    self.logger.debug("Microphone recorder opened (mic-only mode)")
+                    self._recording_loop_mic_only(mic_rec)
 
-                    # Read from system audio based on mode
-                    if system_audio_mode == 'soundcard_loopback':
-                        # Soundcard loopback is handled by separate thread
-                        # For now, create silent system audio (would be replaced by actual soundcard data)
-                        system_audio = np.zeros_like(mic_audio)
-                        sys_level = 0.0
-                    elif system_stream is not None:
-                        system_data = system_stream.read(self.chunk_size, exception_on_overflow=False)
-                        system_audio = np.frombuffer(system_data, dtype=np.int16)
-                        sys_level = np.sqrt(np.mean(system_audio**2))
-                    else:
-                        # Mic-only mode - create silent system audio
-                        system_audio = np.zeros_like(mic_audio)
-                        sys_level = 0.0
-
-                    # Update volume levels (thread-safe)
-                    buffer_duration = self.get_recording_duration()
-                    self._update_levels_thread_safe(mic_level, sys_level, buffer_duration)
-
-                    # Log audio levels every 5 seconds
-                    if chunk_count - last_level_log >= (5 * self.sample_rate // self.chunk_size):
-                        from logger_config import AmanuensisLogger
-                        AmanuensisLogger()._instance.log_audio_levels(mic_level, sys_level)
-                        last_level_log = chunk_count
-
-                    # Combine into stereo (mic=left, system=right)
-                    stereo_data = np.empty((len(mic_audio) * 2,), dtype=np.int16)
-                    stereo_data[0::2] = mic_audio  # Left channel
-                    stereo_data[1::2] = system_audio  # Right channel
-
-                    # Send audio data to registered callbacks for real-time transcription
-                    # Convert to float32 format for transcription (same as transcription bridge expects)
-                    stereo_float = stereo_data.astype(np.float32) / 32768.0
-                    self._call_audio_callbacks(stereo_float, self.sample_rate)
-
-                    # Add to circular buffer
-                    self.audio_buffer.append(stereo_data.tobytes())
-
-                    # Maintain buffer size
-                    while len(self.audio_buffer) > buffer_max_size:
-                        self.audio_buffer.popleft()
-
-                    chunk_count += 1
-
-                    # Log buffer status every 30 seconds
-                    if chunk_count % (30 * self.sample_rate // self.chunk_size) == 0:
-                        duration = self.get_recording_duration()
-                        self.logger.debug(f"Recording status: {chunk_count} chunks, {duration:.1f}s buffered, Mic:{mic_level:.1f}, Sys:{sys_level:.1f}")
-
-                    # Send status update to GUI thread
-                    try:
-                        self.status_queue.put({
-                            'type': 'levels',
-                            'mic_level': mic_level,
-                            'sys_level': sys_level,
-                            'buffer_duration': buffer_duration,
-                            'chunk_count': chunk_count
-                        }, block=False)
-                    except queue.Full:
-                        pass  # Skip if queue is full to avoid blocking
-
-                except Exception as e:
-                    self.logger.error(f"Recording error in loop: {e}")
-                    continue
-
-            self.logger.info(f"Recording loop ended after {chunk_count} chunks")
+            self.logger.info("Recording loop ended")
 
         except Exception as e:
             error_msg = str(e)
             self.logger.error(f"Recording loop initialization error: {e}")
             self.recording = False
-            
+
             # Provide specific guidance for common errors
             user_message = f"Recording error: {error_msg}"
             if "Unanticipated host error" in error_msg:
@@ -955,7 +800,7 @@ class AudioManager:
                 user_message = "Audio format error: The selected device doesn't support the required audio format. Try a different device."
             elif "Device unavailable" in error_msg:
                 user_message = "Device unavailable: The selected audio device is being used by another application."
-            
+
             # Notify GUI of error
             try:
                 self.status_queue.put({
@@ -981,32 +826,6 @@ class AudioManager:
             except:
                 pass  # Don't let notification errors affect cleanup
 
-            # Clean up streams with full error isolation
-            if mic_stream:
-                try:
-                    mic_stream.stop_stream()
-                    mic_stream.close()
-                    self.logger.debug("Microphone stream closed")
-                except Exception as e:
-                    self.logger.warning(f"Error closing mic stream: {e}")
-
-            if system_stream:
-                try:
-                    system_stream.stop_stream()
-                    system_stream.close()
-                    self.logger.debug("System audio stream closed")
-                except Exception as e:
-                    self.logger.warning(f"Error closing system stream: {e}")
-            
-            # Clean up soundcard loopback if used
-            if hasattr(self, 'soundcard_loopback_mic') and self.soundcard_loopback_mic:
-                try:
-                    # Soundcard cleanup is handled by the context manager
-                    self.soundcard_loopback_mic = None
-                    self.logger.debug("Soundcard loopback cleaned up")
-                except Exception as e:
-                    self.logger.warning(f"Error cleaning up soundcard loopback: {e}")
-
             # Final status notification
             try:
                 self.status_queue.put({
@@ -1018,6 +837,162 @@ class AudioManager:
                 pass  # Don't let notification errors affect cleanup
 
             self.logger.debug("Recording loop thread finished")
+
+    def _recording_loop_dual_stream(self, mic_rec, sys_rec):
+        """Recording loop for dual-stream mode (microphone + system audio)"""
+        buffer_max_size = int(self.buffer_duration * self.sample_rate / self.chunk_size)
+        chunk_count = 0
+        last_level_log = 0
+
+        while self.recording and not self._shutdown_event.is_set():
+            try:
+                # Check for commands from GUI
+                try:
+                    command = self.command_queue.get_nowait()
+                    if command['command'] == 'stop':
+                        self.logger.debug("Stop command received from GUI")
+                        break
+                except queue.Empty:
+                    pass
+
+                # Read from both sources simultaneously
+                mic_data = mic_rec.record(numframes=self.chunk_size)
+                system_data = sys_rec.record(numframes=self.chunk_size)
+
+                # Calculate audio levels
+                mic_level = np.sqrt(np.mean(mic_data**2))
+                sys_level = np.sqrt(np.mean(system_data**2))
+
+                # Convert to int16 format for consistency
+                mic_audio = (mic_data.flatten() * 32767).astype(np.int16)
+                system_audio = (np.mean(system_data, axis=1) * 32767).astype(np.int16)
+
+                # Update volume levels (thread-safe)
+                buffer_duration = self.get_recording_duration()
+                self._update_levels_thread_safe(mic_level, sys_level, buffer_duration)
+
+                # Log audio levels every 5 seconds
+                if chunk_count - last_level_log >= (5 * self.sample_rate // self.chunk_size):
+                    from logger_config import AmanuensisLogger
+                    AmanuensisLogger()._instance.log_audio_levels(mic_level, sys_level)
+                    last_level_log = chunk_count
+
+                # Combine into stereo (mic=left, system=right)
+                stereo_data = np.empty((len(mic_audio) * 2,), dtype=np.int16)
+                stereo_data[0::2] = mic_audio  # Left channel
+                stereo_data[1::2] = system_audio  # Right channel
+
+                # Send audio data to callbacks for real-time transcription
+                stereo_float = stereo_data.astype(np.float32) / 32768.0
+                self._call_audio_callbacks(stereo_float, self.sample_rate)
+
+                # Add to circular buffer
+                self.audio_buffer.append(stereo_data.tobytes())
+                while len(self.audio_buffer) > buffer_max_size:
+                    self.audio_buffer.popleft()
+
+                chunk_count += 1
+
+                # Log buffer status every 30 seconds
+                if chunk_count % (30 * self.sample_rate // self.chunk_size) == 0:
+                    duration = self.get_recording_duration()
+                    self.logger.debug(f"Recording status: {chunk_count} chunks, {duration:.1f}s buffered, Mic:{mic_level:.4f}, Sys:{sys_level:.4f}")
+
+                # Send status update to GUI thread
+                try:
+                    self.status_queue.put({
+                        'type': 'levels',
+                        'mic_level': mic_level,
+                        'sys_level': sys_level,
+                        'buffer_duration': buffer_duration,
+                        'chunk_count': chunk_count
+                    }, block=False)
+                except queue.Full:
+                    pass  # Skip if queue is full
+
+            except Exception as e:
+                self.logger.error(f"Recording error in dual-stream loop: {e}")
+                continue
+
+        self.logger.info(f"Dual-stream recording loop ended after {chunk_count} chunks")
+
+    def _recording_loop_mic_only(self, mic_rec):
+        """Recording loop for mic-only mode (no system audio)"""
+        buffer_max_size = int(self.buffer_duration * self.sample_rate / self.chunk_size)
+        chunk_count = 0
+        last_level_log = 0
+
+        while self.recording and not self._shutdown_event.is_set():
+            try:
+                # Check for commands from GUI
+                try:
+                    command = self.command_queue.get_nowait()
+                    if command['command'] == 'stop':
+                        self.logger.debug("Stop command received from GUI")
+                        break
+                except queue.Empty:
+                    pass
+
+                # Read from microphone only
+                mic_data = mic_rec.record(numframes=self.chunk_size)
+
+                # Calculate audio levels (mic only, no system audio)
+                mic_level = np.sqrt(np.mean(mic_data**2))
+                sys_level = 0.0  # No system audio in mic-only mode
+
+                # Convert to int16 format
+                mic_audio = (mic_data.flatten() * 32767).astype(np.int16)
+                # Create silent system audio channel
+                system_audio = np.zeros_like(mic_audio)
+
+                # Update volume levels (thread-safe)
+                buffer_duration = self.get_recording_duration()
+                self._update_levels_thread_safe(mic_level, sys_level, buffer_duration)
+
+                # Log audio levels every 5 seconds
+                if chunk_count - last_level_log >= (5 * self.sample_rate // self.chunk_size):
+                    from logger_config import AmanuensisLogger
+                    AmanuensisLogger()._instance.log_audio_levels(mic_level, sys_level)
+                    last_level_log = chunk_count
+
+                # Combine into stereo (mic=left, silent=right)
+                stereo_data = np.empty((len(mic_audio) * 2,), dtype=np.int16)
+                stereo_data[0::2] = mic_audio  # Left channel
+                stereo_data[1::2] = system_audio  # Right channel (silent)
+
+                # Send audio data to callbacks for real-time transcription
+                stereo_float = stereo_data.astype(np.float32) / 32768.0
+                self._call_audio_callbacks(stereo_float, self.sample_rate)
+
+                # Add to circular buffer
+                self.audio_buffer.append(stereo_data.tobytes())
+                while len(self.audio_buffer) > buffer_max_size:
+                    self.audio_buffer.popleft()
+
+                chunk_count += 1
+
+                # Log buffer status every 30 seconds
+                if chunk_count % (30 * self.sample_rate // self.chunk_size) == 0:
+                    duration = self.get_recording_duration()
+                    self.logger.debug(f"Recording status: {chunk_count} chunks, {duration:.1f}s buffered, Mic:{mic_level:.4f} (mic-only mode)")
+
+                # Send status update to GUI thread
+                try:
+                    self.status_queue.put({
+                        'type': 'levels',
+                        'mic_level': mic_level,
+                        'sys_level': sys_level,
+                        'buffer_duration': buffer_duration,
+                        'chunk_count': chunk_count
+                    }, block=False)
+                except queue.Full:
+                    pass  # Skip if queue is full
+
+            except Exception as e:
+                self.logger.error(f"Recording error in mic-only loop: {e}")
+                continue
+
+        self.logger.info(f"Mic-only recording loop ended after {chunk_count} chunks")
 
     @log_function_call('audio_manager')
     def stop_recording(self):
@@ -1129,7 +1104,7 @@ class AudioManager:
         """Save audio data to WAV file"""
         wf = wave.open(filename, 'wb')
         wf.setnchannels(channels)
-        wf.setsampwidth(self.pa.get_sample_size(self.format))
+        wf.setsampwidth(2)  # 16-bit audio (2 bytes per sample)
         wf.setframerate(self.sample_rate)
         wf.writeframes(audio_data.tobytes())
         wf.close()
@@ -1166,10 +1141,26 @@ class AudioManager:
         """Send command to audio thread"""
         self.command_queue.put({'command': command, 'data': data})
 
+    def get_levels(self):
+        """Get current audio levels (thread-safe)"""
+        with self._levels_lock:
+            return {
+                'mic': self._mic_level,
+                'system': self._system_level
+            }
+
+    def get_buffer_status(self):
+        """Get current buffer status"""
+        return {
+            'buffer_size': len(self.audio_buffer),
+            'buffer_duration': self._buffer_duration,
+            'recording': self.recording
+        }
+
     def cleanup(self):
         """Clean up resources"""
         self.stop_recording()
-        self.pa.terminate()
+        # No PyAudio cleanup needed - soundcard handles cleanup automatically
 
         # Clean up temp files
         try:

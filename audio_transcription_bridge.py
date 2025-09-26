@@ -21,6 +21,18 @@ except ImportError:
     SOUNDCARD_AVAILABLE = False
     sc = None
 
+# Import COM initialization helper for Windows WASAPI
+try:
+    from com_initializer import com_audio_safe, initialize_com_for_audio, com_context
+    COM_HELPER_AVAILABLE = True
+except ImportError:
+    COM_HELPER_AVAILABLE = False
+    # Fallback decorators that do nothing on non-Windows systems
+    def com_audio_safe(func):
+        return func
+    def initialize_com_for_audio():
+        return True
+
 # Import project modules
 try:
     from audio_manager import AudioManager
@@ -101,25 +113,27 @@ def push_audio_frames(frames: np.ndarray, samplerate: int):
             logger.debug("audio_q overflow: dropping oldest frame")
             _last_drop_log = time.time()
 
+@com_audio_safe
 def resolve_loopback_mic():
     """Resolve the loopback microphone for the specified speaker device."""
     if not SOUNDCARD_AVAILABLE:
         raise ImportError("soundcard module not available")
-    
+
     device_name = config.get('loopback_device_name')
     if device_name:
         spk = sc.get_speaker(device_name)
     else:
         spk = sc.default_speaker()
-    
+
     mic = sc.get_microphone(id=spk.name, include_loopback=True)
     return mic, spk
 
+@com_audio_safe
 def preflight_loopback(mic):
     """Preflight test for loopback microphone (250ms test)."""
     samplerate = config.get('capture_samplerate', 44100)
     test_frames = int(samplerate * 0.25)  # 250ms test
-    
+
     with mic.recorder(samplerate=samplerate) as rec:
         _ = rec.record(numframes=test_frames)
 
@@ -144,10 +158,15 @@ class LoopbackCaptureSoundcard:
             return
         
         def run():
+            # Initialize COM for WASAPI in this thread
+            if not initialize_com_for_audio():
+                self.logger.error("Failed to initialize COM for WASAPI loopback")
+                return
+
             try:
                 with self.mic.recorder(samplerate=self.samplerate) as rec:
                     self.logger.info(f"Loopback capture started: {self.samplerate}Hz, {self.channels}ch, {self.frames} frames")
-                    
+
                     while not self._stop.is_set():
                         frames = rec.record(numframes=self.frames)
                         audio_data = np.asarray(frames, dtype="float32")
