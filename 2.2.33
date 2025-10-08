@@ -1,0 +1,16 @@
+Collecting presidio-anonymizer
+  Downloading presidio_anonymizer-2.2.360-py3-none-any.whl.metadata (8.9 kB)
+Collecting cryptography<44.1 (from presidio-anonymizer)
+  Downloading cryptography-44.0.3-cp39-abi3-win_amd64.whl.metadata (5.7 kB)
+Requirement already satisfied: cffi>=1.12 in c:\users\nicol\appdata\local\programs\python\python310\lib\site-packages (from cryptography<44.1->presidio-anonymizer) (2.0.0)
+Requirement already satisfied: pycparser in c:\users\nicol\appdata\local\programs\python\python310\lib\site-packages (from cffi>=1.12->cryptography<44.1->presidio-anonymizer) (2.23)
+Downloading presidio_anonymizer-2.2.360-py3-none-any.whl (35 kB)
+Downloading cryptography-44.0.3-cp39-abi3-win_amd64.whl (3.2 MB)
+   ---------------------------------------- 3.2/3.2 MB 37.8 MB/s  0:00:00
+Installing collected packages: cryptography, presidio-anonymizer
+  Attempting uninstall: cryptography
+    Found existing installation: cryptography 46.0.1
+    Uninstalling cryptography-46.0.1:
+      Successfully uninstalled cryptography-46.0.1
+
+Successfully installed cryptography-44.0.3 presidio-anonymizer-2.2.360
