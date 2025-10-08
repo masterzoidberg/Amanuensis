@@ -25,15 +25,6 @@ import time
 from faster_whisper import WhisperModel
 import silero_vad
 
-# PHI Detection imports
-try:
-    from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
-    from presidio_anonymizer import AnonymizerEngine
-    import spacy
-    PHI_DETECTION_AVAILABLE = True
-except ImportError:
-    PHI_DETECTION_AVAILABLE = False
-    print("WARNING: PHI detection not available. Install presidio-analyzer, presidio-anonymizer, and spacy.")
 
 import re
 import json
@@ -155,17 +146,6 @@ class AmanuensisApp:
         self.pending_diarization_chunks = deque()
         self.gpu_memory_threshold = 10.0  # GB - fail-safe for GPU memory
 
-        # PHI Detection state
-        self.phi_enabled = False
-        self.phi_review_queue = queue.Queue()
-        self.phi_analyzer = None
-        self.phi_anonymizer = None
-        self.phi_review_window = None
-        self.current_phi_segment = None
-        self.phi_timeout_seconds = 30
-        self.auto_approve_enabled = False
-        self.pending_segments = deque()
-        self.approved_segments = []
 
         # AI Analysis state
         self.analysis_enabled = False
@@ -187,7 +167,6 @@ class AmanuensisApp:
             'tokens_used': 0
         }
         self.risk_alerts = []
-        # PHI review queue already initialized at line 116 as queue.Queue()
 
         # DEPRECATED: Legacy transcript queue (replaced by _append_transcript_turn adapter)
         self.transcript_queue = None  # Shim to prevent AttributeErrors; all producers use adapter now
@@ -200,7 +179,6 @@ class AmanuensisApp:
         # Dashboard and UI state - Initialize BEFORE create_ui()
         self.dashboard_state = {
             'analysis_visible': True,
-            'phi_queue_count': 0,
             'current_insights': [],
             'risk_level': 'LOW',
             'session_active': False
@@ -313,10 +291,6 @@ class AmanuensisApp:
             buffer_seconds=30,
             separate_speakers=False,
             dark_mode=True,
-            privacy={
-                'phi_detection': False,
-                'auto_approve': False,
-            },
             VERBOSE_UI=True,
         )
 
@@ -327,8 +301,6 @@ class AmanuensisApp:
             on_separate_speakers=None,
             on_start_stop=None,
             on_theme_toggle=None,
-            on_phi_toggle=None,
-            on_auto_approve_toggle=None,
         )
         
         # Audio settings - Optimized for stable WASAPI capture
@@ -386,9 +358,6 @@ class AmanuensisApp:
         self.whisper_model = None
         self.silero_vad_model = None
         self.load_models()
-
-        # Initialize PHI detection
-        self.load_phi_models()
 
         # Initialize therapy analysis
         self.load_analysis_config()
@@ -1003,23 +972,6 @@ class AmanuensisApp:
             btn = self.session_controls_state._theme_btn
             btn.configure(text='🌙 Dark Mode' if self.session_controls_state.dark_mode else '☀️ Light Mode')
     
-    def _on_phi_toggle(self, enabled: bool):
-        """Handle PHI detection toggle from SessionControls."""
-        if self.session_controls_state.VERBOSE_UI:
-            print(f"CTRL PHI detection: {enabled}")
-        self.phi_enabled = enabled
-        if hasattr(self, 'session_controls_state'):
-            self.session_controls_state.privacy['phi_detection'] = enabled
-    
-    def _on_auto_approve_toggle(self, enabled: bool):
-        """Handle auto-approve toggle from SessionControls."""
-        if self.session_controls_state.VERBOSE_UI:
-            print(f"CTRL auto-approve: {enabled}")
-        # Store the auto-approve setting
-        if hasattr(self, 'session_controls_state'):
-            self.session_controls_state.privacy['auto_approve'] = enabled
-        # This would be used in the PHI approval workflow
-
     def _on_generate_notes_click(self):
         """
         Handle Generate Progress Notes button click with optional file attachment.
@@ -1174,8 +1126,7 @@ class AmanuensisApp:
         # Verbose logging
         if self.VERBOSE_UI:
             ts_str = f"[{start_ts:.2f},{end_ts:.2f}]" if start_ts and end_ts else "[no-ts]"
-            phi_str = " PHI" if is_phi else ""
-            print(f"TRANSCRIPT append adapter: spk={speaker} t={ts_str} len={len(text)}{phi_str} id={turn_id[:8]}")
+            print(f"TRANSCRIPT append adapter: spk={speaker} t={ts_str} len={len(text)} id={turn_id[:8]}")
 
         # Ensure the call is made from the main GUI thread
         self.root.after(0, self.transcript_panel_actions.append_turn, payload)
@@ -1228,8 +1179,6 @@ class AmanuensisApp:
         self.session_controls_actions.on_separate_speakers = self._on_separate_speakers_toggle
         self.session_controls_actions.on_start_stop = self.toggle_recording
         self.session_controls_actions.on_theme_toggle = self._on_theme_toggle
-        self.session_controls_actions.on_phi_toggle = self._on_phi_toggle
-        self.session_controls_actions.on_auto_approve_toggle = self._on_auto_approve_toggle
         self.session_controls_actions.on_generate_notes = self._on_generate_notes_click
         
         # Populate device lists (devices are tuples: (id, name))
@@ -1276,13 +1225,19 @@ class AmanuensisApp:
         self.main_paned_window.add(self.transcript_panel_frame, weight=1)
         self.main_paned_window.add(self.insights_panel_frame, weight=0)
 
-        # Set minsize constraints via pane() (Windows-safe)
+        # Set minsize constraints using pane index (Windows 11 compatible)
+        # Note: Windows 11 ttk.PanedWindow uses pane indices (0, 1, 2) instead of widget references
+        # and minsize must be passed without the '-' prefix in newer Python/Tk versions
         try:
-            self.main_paned_window.pane(self.session_controls_frame, minsize=280)
-            self.main_paned_window.pane(self.transcript_panel_frame, minsize=360)
-            self.main_paned_window.pane(self.insights_panel_frame, minsize=300)
+            # Access panes by index: 0=session_controls, 1=transcript, 2=insights
+            self.main_paned_window.pane(0, minsize=280)
+            self.main_paned_window.pane(1, minsize=360)
+            self.main_paned_window.pane(2, minsize=300)
+            print(f"[UI] Pane minsize constraints applied successfully")
         except Exception as e:
-            print(f"[UI] Warning: Could not set pane minsize: {e}")
+            # Fallback: If minsize isn't supported, panels will still resize manually via sash
+            print(f"[UI] Info: Pane minsize not supported on this platform ({e})")
+            print(f"[UI] Panels remain manually resizable via sash dividers")
 
         # Grid the PanedWindow to row 1 (no padding for seamless dark mode)
         self.main_paned_window.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
@@ -1431,8 +1386,8 @@ class AmanuensisApp:
 
     def setup_professional_theme(self):
         """Configure professional color scheme for clinical use"""
-        # Initialize theme mode (default to light)
-        self.current_theme = getattr(self, 'current_theme', 'light')
+        # Initialize theme mode (default to dark for clinical use)
+        self.current_theme = getattr(self, 'current_theme', 'dark')
 
         # Configure ttk styles for dark mode integration
         style = ttk.Style()
@@ -1686,8 +1641,8 @@ class AmanuensisApp:
             if hasattr(self, 'theme_toggle_button'):
                 self.theme_toggle_button.configure(
                     text=f"{theme_icon} {theme_text}",
-                    fg_color=self.colors['primary'],
-                    hover_color=self.colors['accent'],
+                    fg_color=self.colors.get('primary', '#1e40af'),
+                    hover_color=self.colors.get('accent', '#6d28d9'),
                     text_color="white"
                 )
             
@@ -1695,9 +1650,9 @@ class AmanuensisApp:
             if hasattr(self, 'status_bar_theme_button'):
                 self.status_bar_theme_button.configure(
                     text=f"{theme_icon} {theme_text}",
-                    fg_color=self.colors['button_secondary'],
-                    hover_color=self.colors['button_secondary_hover'],
-                    text_color=self.colors['button_secondary_text']
+                    fg_color=self.colors.get('button_secondary', '#374151'),
+                    hover_color=self.colors.get('button_secondary_hover', '#4b5563'),
+                    text_color=self.colors.get('button_secondary_text', '#f9fafb')
                 )
                 
             print(f"[OK] All theme buttons updated to {theme_text} mode")
@@ -1728,9 +1683,9 @@ class AmanuensisApp:
             if hasattr(self, 'root'):
                 # Update root window colors
                 if theme_name == 'dark':
-                    self.root.configure(fg_color=self.colors['bg_primary'])
+                    self.root.configure(fg_color=self.colors.get('bg_primary', '#1a1a1a'))
                 else:
-                    self.root.configure(fg_color=self.colors['bg_primary'])
+                    self.root.configure(fg_color=self.colors.get('bg_primary', '#1a1a1a'))
 
             # Apply theme to all existing widgets
             self.apply_theme_to_widgets()
@@ -1788,7 +1743,7 @@ class AmanuensisApp:
             for label_name in label_widgets:
                 if hasattr(self, label_name):
                     label = getattr(self, label_name)
-                    label.configure(text_color=self.colors['text_primary'])
+                    label.configure(text_color=self.colors.get('text_primary', '#ffffff'))
                     
             print(f"[OK] Section themes updated for {self.current_theme} mode")
             
@@ -1826,68 +1781,70 @@ class AmanuensisApp:
     def update_panel_themes(self):
         """Update main panel backgrounds and borders with comprehensive dark mode support"""
         try:
+            # Define color tuples for theme switching
+            bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
             # Main container
             if hasattr(self, 'main_container'):
-                self.main_container.configure(fg_color=self.colors['bg_primary'])
+                self.main_container.configure(fg_color=self.colors.get('bg_primary', '#1a1a1a'))
 
             # Control panel (left)
             if hasattr(self, 'control_frame'):
                 self.control_frame.configure(
-                    fg_color=self.colors['bg_secondary'],
-                    border_color=self.colors['border_subtle'],
+                    fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
+                    border_color=self.colors.get('border_subtle', '#404040'),
                     border_width=1
                 )
 
             # Control panel scrollable frame
             if hasattr(self, 'scrollable_frame'):
                 self.scrollable_frame.configure(
-                    fg_color=self.colors['bg_secondary'],
-                    scrollbar_fg_color=self.colors['bg_accent'],
-                    scrollbar_button_color=self.colors['primary'],
-                    scrollbar_button_hover_color=self.colors['accent']
+                    fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
+                    scrollbar_fg_color=bg_accent_tuple,
+                    scrollbar_button_color=self.colors.get('primary', '#1e40af'),
+                    scrollbar_button_hover_color=self.colors.get('accent', '#6d28d9')
                 )
 
             # Transcript panel (center)
             if hasattr(self, 'transcript_frame'):
                 self.transcript_frame.configure(
-                    fg_color=self.colors['bg_secondary'],
-                    border_color=self.colors['border_subtle'],
+                    fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
+                    border_color=self.colors.get('border_subtle', '#404040'),
                     border_width=1
                 )
 
             # Analysis panel (right) - Enhanced for clinical use
             if hasattr(self, 'analysis_frame'):
                 self.analysis_frame.configure(
-                    fg_color=self.colors['bg_secondary'],
-                    border_color=self.colors['border_defined'],
+                    fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
+                    border_color=self.colors.get('border_defined', '#606060'),
                     border_width=2  # Thicker border for clinical prominence
                 )
 
             # Update bottom status bar with proper dark mode colors
             if hasattr(self, 'status_bar_frame'):
                 self.status_bar_frame.configure(
-                    fg_color=self.colors['bg_secondary'],
-                    border_color=self.colors['border_subtle']
+                    fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
+                    border_color=self.colors.get('border_subtle', '#404040')
                 )
 
             # Update status bar text with proper contrast
             if hasattr(self, 'status_label'):
-                self.status_label.configure(text_color=self.colors['text_primary'])
+                self.status_label.configure(text_color=self.colors.get('text_primary', '#ffffff'))
                 
             if hasattr(self, 'session_info_label'):
-                self.session_info_label.configure(text_color=self.colors['text_secondary'])
+                self.session_info_label.configure(text_color=self.colors.get('text_secondary', '#e0e0e0'))
                 
             if hasattr(self, 'connection_status_label'):
-                self.connection_status_label.configure(text_color=self.colors['text_secondary'])
+                self.connection_status_label.configure(text_color=self.colors.get('text_secondary', '#e0e0e0'))
 
             # Update status bar theme toggle button
             if hasattr(self, 'status_bar_theme_button'):
                 theme_text = "☀️ Light" if self.current_theme == 'dark' else "🌙 Dark"
                 self.status_bar_theme_button.configure(
                     text=theme_text,
-                    fg_color=self.colors['button_secondary'],
-                    hover_color=self.colors['button_secondary_hover'],
-                    text_color=self.colors['button_secondary_text']
+                    fg_color=self.colors.get('button_secondary', '#374151'),
+                    hover_color=self.colors.get('button_secondary_hover', '#4b5563'),
+                    text_color=self.colors.get('button_secondary_text', '#f9fafb')
                 )
 
             # Update header theme toggle button
@@ -1895,22 +1852,12 @@ class AmanuensisApp:
                 theme_text = "☀️ Light" if self.current_theme == 'dark' else "🌙 Dark"
                 self.theme_toggle_button.configure(
                     text=f"🌙 {theme_text}" if self.current_theme == 'light' else f"☀️ {theme_text}",
-                    fg_color=self.colors['primary'],
-                    hover_color=self.colors['accent'],
+                    fg_color=self.colors.get('primary', '#1e40af'),
+                    hover_color=self.colors.get('accent', '#6d28d9'),
                     text_color="white"
                 )
 
-            # Update Privacy Protection checkboxes
-            privacy_checkboxes = ['phi_review_checkbox', 'auto_approve_checkbox']
-            for checkbox_name in privacy_checkboxes:
-                if hasattr(self, checkbox_name):
-                    checkbox = getattr(self, checkbox_name)
-                    checkbox.configure(
-                        text_color=self.colors['text_primary'],
-                        fg_color=self.colors['primary'],
-                        hover_color=self.colors['button_primary_hover'],
-                        border_color=self.colors['border_defined']
-                    )
+            # Privacy Protection checkboxes removed (PHI detection removed)
 
             print(f"[OK] Panel themes updated for {self.current_theme} mode with clinical accessibility")
 
@@ -1920,64 +1867,67 @@ class AmanuensisApp:
     def update_control_widget_themes(self):
         """Update control widgets with proper contrast and comprehensive dark mode support"""
         try:
+            # Define color tuples for theme switching
+            bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
+            
             # REMOVED: Legacy record_button theme updates (using SessionControls actions)
             # REMOVED: Legacy dropdown theme updates (mic_dropdown - using SessionControls component)
 
             # Dual channel checkbox
             if hasattr(self, 'dual_channel_checkbox'):
                 self.dual_channel_checkbox.configure(
-                    text_color=self.colors['text_primary'],
-                    fg_color=self.colors['primary'],
-                    hover_color=self.colors['button_primary_hover'],
-                    border_color=self.colors['border_defined']
+                    text_color=self.colors.get('text_primary', '#ffffff'),
+                    fg_color=self.colors.get('primary', '#1e40af'),
+                    hover_color=self.colors.get('button_primary_hover', '#1d4ed8'),
+                    border_color=self.colors.get('border_defined', '#606060')
                 )
 
             # Advanced diarization checkbox
             if hasattr(self, 'advanced_diarization_checkbox'):
                 self.advanced_diarization_checkbox.configure(
-                    text_color=self.colors['text_primary'],
-                    fg_color=self.colors['primary'],
-                    hover_color=self.colors['button_primary_hover'],
-                    border_color=self.colors['border_defined']
+                    text_color=self.colors.get('text_primary', '#ffffff'),
+                    fg_color=self.colors.get('primary', '#1e40af'),
+                    hover_color=self.colors.get('button_primary_hover', '#1d4ed8'),
+                    border_color=self.colors.get('border_defined', '#606060')
                 )
 
             # Diarization buffer dropdown
             if hasattr(self, 'diarization_buffer_dropdown'):
                 self.diarization_buffer_dropdown.configure(
-                    fg_color=self.colors['input_background'],
-                    text_color=self.colors['text_primary'],
-                    button_color=self.colors['button_secondary'],
-                    button_hover_color=self.colors['button_secondary_hover']
+                    fg_color=self.colors.get('input_background', '#374151'),
+                    text_color=self.colors.get('text_primary', '#ffffff'),
+                    button_color=self.colors.get('button_secondary', '#374151'),
+                    button_hover_color=self.colors.get('button_secondary_hover', '#4b5563')
                 )
 
             # Copy button (transcript)
             if hasattr(self, 'copy_button'):
                 self.copy_button.configure(
-                    fg_color=self.colors['primary'],
-                    hover_color=self.colors['button_primary_hover'],
-                    text_color=self.colors['button_primary_text']
+                    fg_color=self.colors.get('primary', '#1e40af'),
+                    hover_color=self.colors.get('button_primary_hover', '#1d4ed8'),
+                    text_color=self.colors.get('button_primary_text', '#ffffff')
                 )
 
             # Settings button
             if hasattr(self, 'settings_button'):
                 self.settings_button.configure(
-                    fg_color=self.colors['button_secondary'],
-                    hover_color=self.colors['button_secondary_hover'],
-                    text_color=self.colors['button_secondary_text']
+                    fg_color=self.colors.get('button_secondary', '#374151'),
+                    hover_color=self.colors.get('button_secondary_hover', '#4b5563'),
+                    text_color=self.colors.get('button_secondary_text', '#f9fafb')
                 )
 
             # Buffer slider
             if hasattr(self, 'buffer_slider'):
                 self.buffer_slider.configure(
-                    fg_color=self.colors['bg_accent'],
-                    progress_color=self.colors['primary'],
-                    button_color=self.colors['primary'],
-                    button_hover_color=self.colors['accent']
+                    fg_color=bg_accent_tuple,
+                    progress_color=self.colors.get('primary', '#1e40af'),
+                    button_color=self.colors.get('primary', '#1e40af'),
+                    button_hover_color=self.colors.get('accent', '#6d28d9')
                 )
 
             # Buffer value label
             if hasattr(self, 'buffer_value_label'):
-                self.buffer_value_label.configure(text_color=self.colors['text_secondary'])
+                self.buffer_value_label.configure(text_color=self.colors.get('text_secondary', '#e0e0e0'))
 
             print(f"[OK] Control widget themes updated for {self.current_theme} mode with clinical contrast")
 
@@ -1990,9 +1940,9 @@ class AmanuensisApp:
             # Main transcript text area
             if hasattr(self, 'transcript_text'):
                 self.transcript_text.configure(
-                    fg_color=self.colors['bg_primary'],
-                    text_color=self.colors['medical_text'],
-                    border_color=self.colors['border_subtle'],
+                    fg_color=self.colors.get('bg_primary', '#1a1a1a'),
+                    text_color=self.colors.get('medical_text', '#ffffff'),
+                    border_color=self.colors.get('border_subtle', '#404040'),
                     border_width=1
                 )
 
@@ -2005,15 +1955,15 @@ class AmanuensisApp:
                 if hasattr(self, widget_name):
                     widget = getattr(self, widget_name)
                     widget.configure(
-                        text_color=self.colors['text_secondary'],
+                        text_color=self.colors.get('text_secondary', '#e0e0e0'),
                         fg_color="transparent"
                     )
 
             # Insights scrollable area
             if hasattr(self, 'insights_scrollable'):
                 self.insights_scrollable.configure(
-                    fg_color=self.colors['insight_bg'],
-                    border_color=self.colors['insight_border'],
+                    fg_color=self.colors.get('insight_bg', '#1e293b'),
+                    border_color=self.colors.get('insight_border', '#475569'),
                     border_width=1
                 )
 
@@ -2069,37 +2019,37 @@ class AmanuensisApp:
             # Primary buttons (blue-ish)
             if isinstance(current_fg, str) and ('blue' in current_fg.lower() or '#007' in current_fg or '#2563' in current_fg):
                 button.configure(
-                    fg_color=self.colors['button_primary'],
-                    hover_color=self.colors['button_primary_hover'],
-                    text_color=self.colors['button_primary_text']
+                    fg_color=self.colors.get('button_primary', '#1e40af'),
+                    hover_color=self.colors.get('button_primary_hover', '#1d4ed8'),
+                    text_color=self.colors.get('button_primary_text', '#ffffff')
                 )
             # Success buttons (green-ish)
             elif isinstance(current_fg, str) and ('green' in current_fg.lower() or '#28a' in current_fg or '#22c' in current_fg):
                 button.configure(
-                    fg_color=self.colors['success'],
-                    hover_color=self.colors['success_bg'],
-                    text_color=self.colors['text_primary']
+                    fg_color=self.colors.get('success', '#047857'),
+                    hover_color=self.colors.get('success_bg', '#064e3b'),
+                    text_color=self.colors.get('text_primary', '#ffffff')
                 )
             # Danger buttons (red-ish)
             elif isinstance(current_fg, str) and ('red' in current_fg.lower() or '#dc3' in current_fg or '#ef4' in current_fg):
                 button.configure(
-                    fg_color=self.colors['danger'],
-                    hover_color=self.colors['danger_bg'],
-                    text_color=self.colors['text_primary']
+                    fg_color=self.colors.get('danger', '#dc2626'),
+                    hover_color=self.colors.get('danger_bg', '#991b1b'),
+                    text_color=self.colors.get('text_primary', '#ffffff')
                 )
             # Warning buttons (yellow/amber-ish)
             elif isinstance(current_fg, str) and ('yellow' in current_fg.lower() or '#ffc' in current_fg or '#f59' in current_fg):
                 button.configure(
-                    fg_color=self.colors['warning'],
-                    hover_color=self.colors['warning_bg'],
-                    text_color=self.colors['text_inverse']
+                    fg_color=self.colors.get('warning', '#b45309'),
+                    hover_color=self.colors.get('warning_bg', '#92400e'),
+                    text_color=self.colors.get('text_inverse', '#1a1a1a')
                 )
             # Default secondary buttons
             else:
                 button.configure(
-                    fg_color=self.colors['button_secondary'],
-                    hover_color=self.colors['button_secondary_hover'],
-                    text_color=self.colors['button_secondary_text']
+                    fg_color=self.colors.get('button_secondary', '#374151'),
+                    hover_color=self.colors.get('button_secondary_hover', '#4b5563'),
+                    text_color=self.colors.get('button_secondary_text', '#f9fafb')
                 )
 
         except Exception as e:
@@ -2119,14 +2069,14 @@ class AmanuensisApp:
             if hasattr(frame, '_clinical_frame_type'):
                 frame_type = getattr(frame, '_clinical_frame_type')
                 if frame_type == 'header':
-                    frame.configure(fg_color=self.colors['primary'])
+                    frame.configure(fg_color=self.colors.get('primary', '#1e40af'))
                 elif frame_type == 'card':
-                    frame.configure(fg_color=self.colors['bg_accent'])
+                    frame.configure(fg_color=bg_accent_tuple)
                 elif frame_type == 'panel':
-                    frame.configure(fg_color=self.colors['bg_secondary'])
+                    frame.configure(fg_color=self.colors.get('bg_secondary', '#2d2d2d'))
             else:
                 # Default frame styling
-                frame.configure(fg_color=self.colors['bg_accent'])
+                frame.configure(fg_color=bg_accent_tuple)
 
         except Exception as e:
             print(f"Error updating frame theme: {e}")
@@ -2141,14 +2091,14 @@ class AmanuensisApp:
             if hasattr(label, '_clinical_label_type'):
                 label_type = getattr(label, '_clinical_label_type')
                 if label_type == 'medical':
-                    label.configure(text_color=self.colors['medical_text'])
+                    label.configure(text_color=self.colors.get('medical_text', '#ffffff'))
                 elif label_type == 'secondary':
-                    label.configure(text_color=self.colors['text_secondary'])
+                    label.configure(text_color=self.colors.get('text_secondary', '#e0e0e0'))
                 elif label_type == 'muted':
-                    label.configure(text_color=self.colors['text_muted'])
+                    label.configure(text_color=self.colors.get('text_muted', '#b0b0b0'))
             else:
                 # Default label text color
-                label.configure(text_color=self.colors['text_primary'])
+                label.configure(text_color=self.colors.get('text_primary', '#ffffff'))
 
         except Exception as e:
             print(f"Error updating label theme: {e}")
@@ -2157,10 +2107,10 @@ class AmanuensisApp:
         """Update individual entry field theme"""
         try:
             entry.configure(
-                fg_color=self.colors['input_bg'],
-                border_color=self.colors['input_border'],
-                text_color=self.colors['input_text'],
-                placeholder_text_color=self.colors['input_placeholder']
+                fg_color=self.colors.get('input_bg', '#374151'),
+                border_color=self.colors.get('input_border', '#6b7280'),
+                text_color=self.colors.get('input_text', '#f9fafb'),
+                placeholder_text_color=self.colors.get('input_placeholder', '#9ca3af')
             )
 
         except Exception as e:
@@ -2170,9 +2120,9 @@ class AmanuensisApp:
         """Update individual textbox theme"""
         try:
             textbox.configure(
-                fg_color=self.colors['input_bg'],
-                border_color=self.colors['border_subtle'],
-                text_color=self.colors['medical_text']
+                fg_color=self.colors.get('input_bg', '#374151'),
+                border_color=self.colors.get('border_subtle', '#404040'),
+                text_color=self.colors.get('medical_text', '#ffffff')
             )
 
         except Exception as e:
@@ -2182,11 +2132,11 @@ class AmanuensisApp:
         """Update individual combobox theme"""
         try:
             combobox.configure(
-                fg_color=self.colors['input_bg'],
-                border_color=self.colors['input_border'],
-                text_color=self.colors['input_text'],
-                button_color=self.colors['button_secondary'],
-                button_hover_color=self.colors['button_secondary_hover']
+                fg_color=self.colors.get('input_bg', '#374151'),
+                border_color=self.colors.get('input_border', '#6b7280'),
+                text_color=self.colors.get('input_text', '#f9fafb'),
+                button_color=self.colors.get('button_secondary', '#374151'),
+                button_hover_color=self.colors.get('button_secondary_hover', '#4b5563')
             )
 
         except Exception as e:
@@ -2240,17 +2190,20 @@ class AmanuensisApp:
     def refresh_header_theme(self):
         """Refresh header with new theme colors"""
         try:
+            # Define color tuples for theme switching
+            bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
+            
             # Update header frame
-            self.header_frame.configure(fg_color=self.colors['bg_secondary'])
+            self.header_frame.configure(fg_color=self.colors.get('bg_secondary', '#2d2d2d'))
 
             # REMOVED: Legacy session_status_label (using centralized status bar)
 
             # Update metric frames
-            metric_widgets = ['duration_frame', 'phi_frame', 'risk_frame']
+            metric_widgets = ['duration_frame', 'risk_frame']
             for widget_name in metric_widgets:
                 if hasattr(self, widget_name):
                     widget = getattr(self, widget_name)
-                    widget.configure(fg_color=self.colors['bg_accent'])
+                    widget.configure(fg_color=bg_accent_tuple)
 
         except Exception as e:
             print(f"Error refreshing header theme: {e}")
@@ -2259,7 +2212,7 @@ class AmanuensisApp:
         """Refresh control panel with new theme colors"""
         try:
             if hasattr(self, 'control_frame'):
-                self.control_frame.configure(fg_color=self.colors['bg_secondary'])
+                self.control_frame.configure(fg_color=self.colors.get('bg_secondary', '#2d2d2d'))
 
         except Exception as e:
             print(f"Error refreshing control panel theme: {e}")
@@ -2268,12 +2221,12 @@ class AmanuensisApp:
         """Refresh transcript panel with new theme colors"""
         try:
             if hasattr(self, 'transcript_frame'):
-                self.transcript_frame.configure(fg_color=self.colors['bg_secondary'])
+                self.transcript_frame.configure(fg_color=self.colors.get('bg_secondary', '#2d2d2d'))
 
             if hasattr(self, 'transcript_text'):
                 self.transcript_text.configure(
-                    fg_color=self.colors['bg_primary'],
-                    text_color=self.colors['text_primary']
+                    fg_color=self.colors.get('bg_primary', '#1a1a1a'),
+                    text_color=self.colors.get('text_primary', '#ffffff')
                 )
 
         except Exception as e:
@@ -2283,21 +2236,24 @@ class AmanuensisApp:
         """Refresh analysis panel with new theme colors"""
         try:
             if hasattr(self, 'analysis_frame'):
-                self.analysis_frame.configure(fg_color=self.colors['bg_secondary'])
+                self.analysis_frame.configure(fg_color=self.colors.get('bg_secondary', '#2d2d2d'))
 
             # Update insights background
             if hasattr(self, 'insights_content'):
-                self.insights_content.configure(fg_color=self.colors['insight_bg'])
+                self.insights_content.configure(fg_color=self.colors.get('insight_bg', '#1e293b'))
 
         except Exception as e:
             print(f"Error refreshing analysis panel theme: {e}")
 
     def create_dashboard_header(self):
         """Create professional dashboard header with session metrics"""
+        # Define color tuples for theme switching
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
+        
         self.header_frame = ctk.CTkFrame(
             self.main_container,
             height=80,
-            fg_color=self.colors['bg_secondary'],
+            fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
             corner_radius=8
         )
         header_frame = self.header_frame
@@ -2313,7 +2269,7 @@ class AmanuensisApp:
             left_header,
             text="Amanuensis V2",
             font=ctk.CTkFont(size=24, weight="bold"),
-            text_color=self.colors['text_primary']
+            text_color=self.colors.get('text_primary', '#ffffff')
         )
         title_label.pack(anchor="w")
 
@@ -2322,7 +2278,7 @@ class AmanuensisApp:
         #     left_header,
         #     text="Ready for new session",
         #     font=ctk.CTkFont(size=12),
-        #     text_color=self.colors['text_secondary']
+        #     text_color=self.colors.get('text_secondary', '#e0e0e0')
         # )
         # self.session_status_label.pack(anchor="w")
 
@@ -2335,14 +2291,14 @@ class AmanuensisApp:
         metrics_frame.pack(side="right")
 
         # Session duration metric
-        duration_frame = ctk.CTkFrame(metrics_frame, fg_color=self.colors['bg_accent'], corner_radius=6)
+        duration_frame = ctk.CTkFrame(metrics_frame, fg_color=bg_accent_tuple, corner_radius=6)
         duration_frame.grid(row=0, column=0, padx=5, pady=2)
 
         ctk.CTkLabel(
             duration_frame,
             text="Duration",
             font=ctk.CTkFont(size=10, weight="bold"),
-            text_color=self.colors['text_muted']
+            text_color=self.colors.get('text_muted', '#b0b0b0')
         ).pack(padx=10, pady=(5,0))
 
         # REMOVED: Legacy duration label (using bottom status bar only)
@@ -2350,31 +2306,12 @@ class AmanuensisApp:
         #     duration_frame,
         #     text="00:00",
         #     font=ctk.CTkFont(size=14, weight="bold"),
-        #     text_color=self.colors['text_primary']
+        #     text_color=self.colors.get('text_primary', '#ffffff')
         # )
         # self.duration_label.pack(padx=10, pady=(0,5))
 
-        # PHI queue metric
-        phi_frame = ctk.CTkFrame(metrics_frame, fg_color=self.colors['bg_accent'], corner_radius=6)
-        phi_frame.grid(row=0, column=1, padx=5, pady=2)
-
-        ctk.CTkLabel(
-            phi_frame,
-            text="PHI Queue",
-            font=ctk.CTkFont(size=10, weight="bold"),
-            text_color=self.colors['text_muted']
-        ).pack(padx=10, pady=(5,0))
-
-        self.phi_queue_label = ctk.CTkLabel(
-            phi_frame,
-            text="0",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=self.colors['text_primary']
-        )
-        self.phi_queue_label.pack(padx=10, pady=(0,5))
-
         # Risk level metric
-        risk_frame = ctk.CTkFrame(metrics_frame, fg_color=self.colors['success'], corner_radius=6)
+        risk_frame = ctk.CTkFrame(metrics_frame, fg_color=self.colors.get('success', '#047857'), corner_radius=6)
         risk_frame.grid(row=0, column=2, padx=5, pady=2)
 
         ctk.CTkLabel(
@@ -2403,8 +2340,8 @@ class AmanuensisApp:
             width=70,
             height=28,
             command=self.toggle_dark_mode,
-            fg_color=self.colors['primary'],
-            hover_color=self.colors['accent'],
+            fg_color=self.colors.get('primary', '#1e40af'),
+            hover_color=self.colors.get('accent', '#6d28d9'),
             text_color="white"
         )
         self.theme_toggle_button.pack(side="right", padx=(10, 0))
@@ -2417,8 +2354,8 @@ class AmanuensisApp:
             width=80,
             height=28,
             command=self.show_settings_modal,
-            fg_color=self.colors['bg_accent'],
-            hover_color=self.colors['primary']
+            fg_color=bg_accent_tuple,
+            hover_color=self.colors.get('primary', '#1e40af')
         )
         settings_button.pack(side="right", padx=(10, 0))
 
@@ -2531,12 +2468,15 @@ class AmanuensisApp:
 
     def create_control_panel(self, parent):
         """Create left control panel with resizable grid layout"""
+        # Define color tuples for theme switching
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
+        
         # Per CustomTkinter docs: use grid with sticky="nsew" for full expansion
         width = getattr(self, 'layout_preferences', {}).get('control_panel_width', 200)
 
         self.control_frame = ctk.CTkFrame(
             parent,
-            fg_color=self.colors['bg_secondary'],
+            fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
             corner_radius=8
         )
         # Use grid instead of pack for resizability
@@ -2544,14 +2484,14 @@ class AmanuensisApp:
         control_frame = self.control_frame
 
         # Panel header
-        header = ctk.CTkFrame(control_frame, fg_color=self.colors['bg_accent'], corner_radius=6)
+        header = ctk.CTkFrame(control_frame, fg_color=bg_accent_tuple, corner_radius=6)
         header.pack(fill="x", padx=10, pady=(10, 5))
 
         ctk.CTkLabel(
             header,
             text="Session Controls",
             font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=self.colors['text_primary']
+            text_color=self.colors.get('text_primary', '#ffffff')
         ).pack(pady=8)
 
         # Scrollable content area with proper dark mode theming
@@ -2572,9 +2512,6 @@ class AmanuensisApp:
 
         # Analysis controls section
         # Analysis controls moved to right column - removed from left panel
-
-        # PHI settings section
-        self.create_phi_settings_section(self.scrollable_frame)
 
     def create_device_section(self, parent):
         """Create device selection section"""
@@ -2722,8 +2659,8 @@ class AmanuensisApp:
         #     command=self.toggle_recording,
         #     font=ctk.CTkFont(size=14, weight="bold"),
         #     height=45,
-        #     fg_color=self.colors['success'],
-        #     hover_color=self.colors['info']
+        #     fg_color=self.colors.get('success', '#047857'),
+        #     hover_color=self.colors.get('info', '#1d4ed8')
         # )
         # self.record_button.pack(fill="x", pady=(5, 10))
 
@@ -2854,52 +2791,14 @@ class AmanuensisApp:
         )
         manage_btn.pack(fill="x", pady=(10, 5))
 
-    def create_phi_settings_section(self, parent):
-        """Create PHI settings section with proper dark mode theming"""
-        section = self.create_section(parent, "Privacy Protection")
-
-        # PHI detection toggle with proper theming
-        self.phi_review_var = ctk.BooleanVar(value=False)
-        self.phi_review_checkbox = ctk.CTkCheckBox(
-            section,
-            text="Enable PHI detection & review",
-            variable=self.phi_review_var,
-            command=self.update_phi_review_mode,
-            font=ctk.CTkFont(size=10),
-            text_color=self.get_color('text_primary', '#ffffff' if self.current_theme == 'dark' else '#212529'),
-            fg_color=self.get_color('primary', '#1e40af' if self.current_theme == 'dark' else '#007bff'),
-            hover_color=self.get_color('button_primary_hover', '#1d4ed8' if self.current_theme == 'dark' else '#0056b3'),
-            border_color=self.get_color('border_defined', '#606060' if self.current_theme == 'dark' else '#adb5bd')
-        )
-        self.phi_review_checkbox.pack(anchor="w", pady=(5, 10))
-
-        if not PHI_DETECTION_AVAILABLE:
-            self.phi_review_checkbox.configure(
-                state="disabled",
-                text="PHI detection unavailable",
-                text_color=self.get_color('text_disabled', '#808080' if self.current_theme == 'dark' else '#6c757d')
-            )
-
-        # Auto-approve toggle with proper theming
-        self.auto_approve_var = ctk.BooleanVar(value=False)
-        self.auto_approve_checkbox = ctk.CTkCheckBox(
-            section,
-            text="Auto-approve after timeout",
-            variable=self.auto_approve_var,
-            command=self.update_auto_approve_mode,
-            font=ctk.CTkFont(size=10),
-            text_color=self.get_color('text_primary', '#ffffff' if self.current_theme == 'dark' else '#212529'),
-            fg_color=self.get_color('primary', '#1e40af' if self.current_theme == 'dark' else '#007bff'),
-            hover_color=self.get_color('button_primary_hover', '#1d4ed8' if self.current_theme == 'dark' else '#0056b3'),
-            border_color=self.get_color('border_defined', '#606060' if self.current_theme == 'dark' else '#adb5bd')
-        )
-        self.auto_approve_checkbox.pack(anchor="w", pady=(0, 5))
-
     def create_section(self, parent, title):
         """Create a styled section container"""
+        # Define color tuples for theme switching
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
+        
         section_frame = ctk.CTkFrame(
             parent,
-            fg_color=self.colors['bg_accent'],
+            fg_color=bg_accent_tuple,
             corner_radius=6
         )
         section_frame.pack(fill="x", pady=(0, 10))
@@ -2909,7 +2808,7 @@ class AmanuensisApp:
             section_frame,
             text=title,
             font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=self.colors['text_primary']
+            text_color=self.colors.get('text_primary', '#ffffff')
         )
         header.pack(pady=(8, 0), padx=10)
 
@@ -2921,12 +2820,15 @@ class AmanuensisApp:
 
     def create_transcript_panel(self, parent):
         """Create center transcript panel with resizable grid layout"""
+        # Define color tuples for theme switching
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
+        
         # Per CustomTkinter docs: use grid with sticky="nsew" for full expansion
         width = getattr(self, 'layout_preferences', {}).get('transcript_panel_width', 450)
 
         self.transcript_frame = ctk.CTkFrame(
             parent,
-            fg_color=self.colors['bg_secondary'],
+            fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
             corner_radius=8
         )
         # Use grid instead of pack for resizability
@@ -2934,7 +2836,7 @@ class AmanuensisApp:
         transcript_frame = self.transcript_frame
 
         # Panel header with controls
-        header_frame = ctk.CTkFrame(transcript_frame, fg_color=self.colors['bg_accent'], corner_radius=6)
+        header_frame = ctk.CTkFrame(transcript_frame, fg_color=bg_accent_tuple, corner_radius=6)
         header_frame.pack(fill="x", padx=10, pady=(10, 5))
 
         # Left side - title
@@ -2945,7 +2847,7 @@ class AmanuensisApp:
             header_left,
             text="Live Transcript",
             font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=self.colors['text_primary']
+            text_color=self.colors.get('text_primary', '#ffffff')
         ).pack(anchor="w")
 
         # Right side - controls
@@ -3003,8 +2905,8 @@ class AmanuensisApp:
             height=28,
             font=ctk.CTkFont(size=11, weight="bold"),
             command=self.copy_transcript,
-            fg_color=self.colors['primary'],
-            hover_color=self.colors['accent'],
+            fg_color=self.colors.get('primary', '#1e40af'),
+            hover_color=self.colors.get('accent', '#6d28d9'),
             corner_radius=6
         )
         self.copy_button.pack(side="right")
@@ -3048,7 +2950,7 @@ class AmanuensisApp:
         self.show_transcript_placeholder()
 
         # Status bar
-        status_frame = ctk.CTkFrame(transcript_frame, fg_color=self.colors['bg_accent'], height=30, corner_radius=6)
+        status_frame = ctk.CTkFrame(transcript_frame, fg_color=bg_accent_tuple, height=30, corner_radius=6)
         status_frame.pack(fill="x", padx=10, pady=(0, 10))
         status_frame.pack_propagate(False)
 
@@ -3057,7 +2959,7 @@ class AmanuensisApp:
         #     status_frame,
         #     text="Ready for transcription",
         #     font=ctk.CTkFont(size=10),
-        #     text_color=self.colors['text_secondary']
+        #     text_color=self.colors.get('text_secondary', '#e0e0e0')
         # )
         # self.transcript_status_label.pack(pady=8)
 
@@ -3068,7 +2970,7 @@ class AmanuensisApp:
 
         self.analysis_frame = ctk.CTkFrame(
             parent,
-            fg_color=self.colors['bg_secondary'],
+            fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
             corner_radius=8
         )
         # Use grid for full column expansion
@@ -3081,7 +2983,7 @@ class AmanuensisApp:
         # Compact header
         header_frame = ctk.CTkFrame(
             self.analysis_frame,
-            fg_color=self.colors['primary'],
+            fg_color=self.colors.get('primary', '#1e40af'),
             corner_radius=6,
             height=45
         )
@@ -3336,7 +3238,7 @@ class AmanuensisApp:
             font=ctk.CTkFont(size=12, weight="bold"),
             command=self.dismiss_risk_alert,
             fg_color="transparent",
-            hover_color=self.colors['warning'],
+            hover_color=self.colors.get('warning', '#b45309'),
             text_color="white"
         )
         dismiss_btn.pack()
@@ -3346,10 +3248,10 @@ class AmanuensisApp:
         # Enhanced insights section with special clinical background
         insights_section = ctk.CTkFrame(
             self.analysis_content,
-            fg_color=self.colors.get('insight_bg', self.colors['bg_accent']),
+            fg_color=self.colors.get('insight_bg', bg_accent_tuple),
             corner_radius=8,
             border_width=2,
-            border_color=self.colors['primary']
+            border_color=self.colors.get('primary', '#1e40af')
         )
         insights_section.pack(fill="x", pady=(5, 10))
 
@@ -3361,7 +3263,7 @@ class AmanuensisApp:
             header_frame,
             text="💡 CURRENT INSIGHTS",
             font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=self.colors['text_primary']
+            text_color=self.colors.get('text_primary', '#ffffff')
         ).pack(side="left", anchor="w")
 
         # Status indicator removed - using stream-based approach instead
@@ -3370,7 +3272,7 @@ class AmanuensisApp:
         self.insights_scrollable = ctk.CTkScrollableFrame(
             insights_section,
             height=220,  # Slightly taller for better visibility
-            fg_color=self.colors['bg_primary'],  # Use theme background
+            fg_color=self.colors.get('bg_primary', '#1a1a1a'),  # Use theme background
             corner_radius=6,
             border_width=1,
             border_color=self.colors.get('text_muted', '#ADB5BD')
@@ -3484,36 +3386,32 @@ class AmanuensisApp:
             metrics_line,
             text="$0.00",
             font=ctk.CTkFont(size=9, weight="bold"),
-            text_color=self.colors['text_primary']
+            text_color=self.colors.get('text_primary', '#ffffff')
         )
         self.cost_label.pack(side="right")
 
     def create_empty_insights_state(self):
         """Create empty state for insights section"""
-        empty_frame = ctk.CTkFrame(self.insights_scrollable, fg_color=self.colors['bg_secondary'], corner_radius=6)
+        empty_frame = ctk.CTkFrame(self.insights_scrollable, fg_color=self.colors.get('bg_secondary', '#2d2d2d'), corner_radius=6)
         empty_frame.pack(fill="x", pady=5)
 
         ctk.CTkLabel(
             empty_frame,
             text="No insights yet",
             font=ctk.CTkFont(size=11),
-            text_color=self.colors['text_muted']
+            text_color=self.colors.get('text_muted', '#b0b0b0')
         ).pack(pady=20)
 
         ctk.CTkLabel(
             empty_frame,
             text="Start recording and enable analysis\nto see real-time insights",
             font=ctk.CTkFont(size=9),
-            text_color=self.colors['text_muted']
+            text_color=self.colors.get('text_muted', '#b0b0b0')
         ).pack(pady=(0, 20))
 
     # ===================================================================
     # DASHBOARD UI EVENT HANDLERS AND UPDATES
     # ===================================================================
-
-    def update_auto_approve_mode(self):
-        """Update auto-approve mode for PHI review"""
-        self.auto_approve_enabled = self.auto_approve_var.get()
 
     def update_transcript_font(self, font_size):
         """Update transcript font size"""
@@ -3717,7 +3615,7 @@ class AmanuensisApp:
             # Create insight card
             card = ctk.CTkFrame(
                 self.insights_scrollable,
-                fg_color=self.colors['bg_secondary'],
+                fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
                 corner_radius=6
             )
 
@@ -3741,13 +3639,13 @@ class AmanuensisApp:
                 header,
                 text=type_text,
                 font=ctk.CTkFont(size=10, weight="bold"),
-                text_color=self.colors['primary']
+                text_color=self.colors.get('primary', '#1e40af')
             ).pack(side="left")
 
             # Optional confidence badge
             if card_data['confidence'] is not None:
                 confidence = card_data['confidence']
-                confidence_color = self.colors['success'] if confidence > 0.8 else self.colors['warning'] if confidence > 0.5 else self.colors['danger']
+                confidence_color = self.colors.get('success', '#047857') if confidence > 0.8 else self.colors.get('warning', '#b45309') if confidence > 0.5 else self.colors.get('danger', '#dc2626')
                 ctk.CTkLabel(
                     header,
                     text=f"{confidence:.0%}",
@@ -3761,7 +3659,7 @@ class AmanuensisApp:
                 card,
                 text=content_text,
                 font=ctk.CTkFont(size=10),
-                text_color=self.colors['text_primary'],
+                text_color=self.colors.get('text_primary', '#ffffff'),
                 wraplength=400,
                 justify="left"
             ).pack(fill="x", padx=10, pady=(5, 8))
@@ -3772,7 +3670,7 @@ class AmanuensisApp:
                 card,
                 text=time_str,
                 font=ctk.CTkFont(size=8),
-                text_color=self.colors['text_muted']
+                text_color=self.colors.get('text_muted', '#b0b0b0')
             ).pack(anchor="e", padx=10, pady=(0, 8))
 
             # Limit cards (keep last 10)
@@ -3790,16 +3688,12 @@ class AmanuensisApp:
         self._render_insight_card(insight_data)
 
     def update_session_metrics(self):
-        """Update session metrics in header and analysis panel (DEPRECATED - minimal PHI queue only)"""
+        """Update session metrics in header and analysis panel (DEPRECATED)"""
         try:
-            # Only update PHI queue count (Queue.qsize() is thread-safe)
-            phi_count = self.phi_review_queue.qsize() if hasattr(self, 'phi_review_queue') else 0
-            if hasattr(self, 'phi_queue_label'):
-                self.phi_queue_label.configure(text=str(phi_count))
-            self.dashboard_state['phi_queue_count'] = phi_count
-
+            # REMOVED: PHI queue count
             # REMOVED: duration_label (using bottom status bar)
             # REMOVED: analysis_count_label, cost_label (not using legacy metrics)
+            pass
 
         except Exception as e:
             # Silently ignore - this method is deprecated
@@ -3944,44 +3838,6 @@ class AmanuensisApp:
 
         return insights
 
-    def integrate_phi_with_analysis(self, segment_data):
-        """Integrate PHI review with analysis pipeline"""
-        try:
-            # Add to PHI queue for dashboard display (use Queue.put() not append)
-            if not hasattr(self, 'phi_review_queue'):
-                self.phi_review_queue = queue.Queue()
-
-            self.phi_review_queue.put(segment_data, block=False)  # Non-blocking put
-
-            # Show PHI review interface
-            self.show_phi_review_interface(segment_data)
-
-            # Update dashboard PHI queue count and show alert
-            self.thread_safe_ui_update(self.update_session_metrics)
-
-            # Show risk alert for PHI detected
-            phi_count = len(segment_data.get('phi_results', []))
-            alert_data = {
-                'alert_level': 'MEDIUM' if phi_count > 3 else 'LOW',
-                'message': f"PHI detected: {phi_count} entities require review",
-                'timestamp': time.time()
-            }
-            self.thread_safe_show_risk_alert(alert_data)
-
-        except Exception as e:
-            print(f"Error integrating PHI with analysis: {e}")
-
-    def remove_from_phi_queue(self, segment_data):
-        """Remove processed segment from PHI queue (no-op for Queue - items already consumed)"""
-        try:
-            # Note: With Queue.get(), items are already removed when consumed
-            # This method is kept for API compatibility but is a no-op
-            # Update dashboard metrics to reflect queue size change
-            if hasattr(self, 'phi_review_queue'):
-                self.thread_safe_ui_update(self.update_session_metrics)
-
-        except Exception as e:
-            print(f"Error updating PHI queue metrics: {e}")
 
     # ===================================================================
     # SETTINGS AND CUSTOMIZATION METHODS
@@ -3990,18 +3846,32 @@ class AmanuensisApp:
     def show_settings_modal(self):
         """Show comprehensive settings modal"""
         try:
-            # Apply theme before creating widgets - use self.current_theme as source of truth
+            # Force dark mode for clinical settings - ensure self.current_theme is properly set
+            if not hasattr(self, 'current_theme') or self.current_theme is None:
+                self.current_theme = 'dark'
+                print("WARNING: current_theme was None, forced to 'dark'")
+            
+            # Double-check theme is actually dark for clinical use
+            if self.current_theme != 'dark':
+                print(f"WARNING: Theme was '{self.current_theme}', forcing to 'dark' for clinical settings")
+                self.current_theme = 'dark'
+            
             is_dark = (self.current_theme == 'dark')
             ctk.set_appearance_mode("dark" if is_dark else "light")
+            
+            # Debug logging
+            print(f"SETTINGS themed: mode={'dark' if is_dark else 'light'} (current_theme={self.current_theme})")
+            print(f"CustomTkinter appearance mode set to: {'dark' if is_dark else 'light'}")
 
-            # Get theme colors with safe fallbacks (using _t helper)
-            BG = self._t("bg_primary", "#121212" if is_dark else "#f8f9fa")
-            BG2 = self._t("bg_secondary", "#1a1a1a" if is_dark else "#ffffff")
-            FG = self._t("text_primary", "#e6e6e6" if is_dark else "#212529")
-            ACC = self._t("accent", "#5b9cff")
-            HOV = self._t("accent_hover", "#4a8bf8")
-            BRD = self._t("border_defined", "#2b2b2b" if is_dark else "#adb5bd")
-            INP = self._t("input_background", BG2)  # fallback kills 'input_background' KeyError
+            # IMPORTANT: Use COLOR TUPLES (light, dark) for automatic theme switching
+            # Per CustomTkinter docs: fg_color accepts tuple: (light_color, dark_color)
+            BG = ("#f8f9fa", "#121212")     # Window background
+            BG2 = ("#ffffff", "#1a1a1a")    # Panel backgrounds
+            FG = ("#212529", "#e6e6e6")     # Text color
+            ACC = "#5b9cff"                  # Accent (same in both modes)
+            HOV = "#4a8bf8"                  # Hover (same in both modes)
+            BRD = ("#adb5bd", "#2b2b2b")    # Borders
+            INP = BG2                        # Input backgrounds same as panels
 
             # Create modal window
             self.settings_window = ctk.CTkToplevel(self.root)
@@ -4053,7 +3923,6 @@ class AmanuensisApp:
             self.settings_tabview.add("Dashboard")
             self.settings_tabview.add("Analysis")
             self.settings_tabview.add("Prompt Editor")
-            self.settings_tabview.add("PHI Detection")
             self.settings_tabview.add("Audio")
             self.settings_tabview.add("Export")
 
@@ -4061,7 +3930,6 @@ class AmanuensisApp:
             self.create_dashboard_settings_tab()
             self.create_analysis_settings_tab()
             self.create_prompt_editor_tab()
-            self.create_phi_settings_tab()
             self.create_audio_settings_tab()
             self.create_export_settings_tab()
 
@@ -4077,8 +3945,8 @@ class AmanuensisApp:
                 button_frame,
                 text="Apply Settings",
                 command=self.apply_settings,
-                fg_color=self.colors['success'],
-                hover_color=self.colors['primary'],
+                fg_color=self.colors.get('success', '#047857'),
+                hover_color=self.colors.get('primary', '#1e40af'),
                 width=120
             )
             apply_button.pack(side="right", padx=(10, 0))
@@ -4088,7 +3956,7 @@ class AmanuensisApp:
                 button_frame,
                 text="Cancel",
                 command=self.close_settings_modal,
-                fg_color=self.colors['danger'],
+                fg_color=self.colors.get('danger', '#dc2626'),
                 hover_color="#dc3545",
                 width=120
             )
@@ -4099,7 +3967,7 @@ class AmanuensisApp:
                 button_frame,
                 text="Reset to Defaults",
                 command=self.reset_to_defaults,
-                fg_color=self.colors['warning'],
+                fg_color=self.colors.get('warning', '#b45309'),
                 hover_color="#e0a800",
                 width=140
             )
@@ -4111,38 +3979,13 @@ class AmanuensisApp:
                 try:
                     # Use self.current_theme as source of truth
                     is_dark_refresh = (self.current_theme == 'dark')
+
+                    # Simply update appearance mode - widgets with tuple colors will auto-update
                     ctk.set_appearance_mode("dark" if is_dark_refresh else "light")
-
-                    # Re-read theme colors
-                    BG_R = self._t("bg_primary", "#121212" if is_dark_refresh else "#f8f9fa")
-                    BG2_R = self._t("bg_secondary", "#1a1a1a" if is_dark_refresh else "#ffffff")
-                    ACC_R = self._t("accent", "#5b9cff")
-                    HOV_R = self._t("accent_hover", "#4a8bf8")
-                    BRD_R = self._t("border_defined", "#2b2b2b" if is_dark_refresh else "#adb5bd")
-                    INP_R = self._t("input_background", BG2_R)
-
-                    if self.settings_window.winfo_exists():
-                        self.settings_window.configure(fg_color=BG_R)
-                        main_frame.configure(fg_color=BG2_R)
-                        header_frame.configure(fg_color=ACC_R, border_color=BRD_R)
-                        self.settings_tabview.configure(
-                            fg_color=BG2_R,
-                            segmented_button_fg_color=INP_R,
-                            segmented_button_selected_color=ACC_R,
-                            segmented_button_selected_hover_color=HOV_R,
-                            border_color=BRD_R
-                        )
-
-                        # IMPORTANT: Also update all tab backgrounds
-                        for tab_name in ["Dashboard", "Analysis", "Prompt Editor", "PHI Detection", "Audio", "Export"]:
-                            try:
-                                tab = self.settings_tabview.tab(tab_name)
-                                tab.configure(fg_color=BG2_R)
-                            except Exception as tab_error:
-                                print(f"Error updating tab {tab_name}: {tab_error}")
 
                     if self.VERBOSE_UI:
                         print(f"SETTINGS re-themed: mode={'dark' if is_dark_refresh else 'light'}")
+
                 except Exception as e:
                     print(f"Error refreshing settings theme: {e}")
 
@@ -4152,17 +3995,18 @@ class AmanuensisApp:
         except Exception as e:
             print(f"Error showing settings modal: {e}")
 
-    def _configure_settings_tabs(self, bg_color):
-        """Safely configure all settings tab backgrounds"""
+    def _configure_settings_tabs(self, bg_color_tuple):
+        """Safely configure all settings tab backgrounds with theme-aware tuple colors"""
         try:
             if not hasattr(self, 'settings_tabview'):
                 return
 
+            # bg_color_tuple should be (light_color, dark_color) for automatic theme switching
             for tab_name in ["Dashboard", "Analysis", "Prompt Editor", "PHI Detection", "Audio", "Export"]:
                 try:
                     tab = self.settings_tabview.tab(tab_name)
                     if tab and tab.winfo_exists():
-                        tab.configure(fg_color=bg_color)
+                        tab.configure(fg_color=bg_color_tuple)
                 except Exception as e:
                     if self.VERBOSE_UI:
                         print(f"Could not configure tab {tab_name}: {e}")
@@ -4174,21 +4018,25 @@ class AmanuensisApp:
         """Create dashboard customization settings"""
         tab = self.settings_tabview.tab("Dashboard")
 
-        # Get theme colors - use self.current_theme as source of truth
+        # Get theme state for conditional fallbacks
         is_dark = (self.current_theme == 'dark')
+
+        # Use color tuples (light, dark) for automatic theme switching per CustomTkinter docs
+        bg_color_tuple = ("#ffffff", "#1a1a1a")  # (light, dark)
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
         bg_color = self.colors.get('bg_secondary', '#1a1a1a' if is_dark else '#ffffff')
 
         # Scrollable frame for settings
         scroll_frame = ctk.CTkScrollableFrame(
             tab,
-            fg_color=bg_color,
+            fg_color=bg_color_tuple,
             scrollbar_button_color=self.colors.get('primary', '#5b9cff'),
             scrollbar_button_hover_color=self.colors.get('accent', '#4a8bf8')
         )
         scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Color theme settings
-        theme_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
+        theme_frame = ctk.CTkFrame(scroll_frame, fg_color=bg_accent_tuple)
         theme_frame.pack(fill="x", pady=(0, 20))
 
         ctk.CTkLabel(
@@ -4214,7 +4062,7 @@ class AmanuensisApp:
             radio.pack(anchor="w", padx=30, pady=3)
 
         # Layout preferences
-        layout_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
+        layout_frame = ctk.CTkFrame(scroll_frame, fg_color=bg_accent_tuple)
         layout_frame.pack(fill="x", pady=(0, 20))
 
         ctk.CTkLabel(
@@ -4266,18 +4114,22 @@ class AmanuensisApp:
 
         # Get theme colors - use self.current_theme as source of truth
         is_dark = (self.current_theme == 'dark')
+        
+        # Use color tuples (light, dark) for automatic theme switching
+        bg_color_tuple = ("#ffffff", "#1a1a1a")  # (light, dark)
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
         bg_color = self.colors.get('bg_secondary', '#1a1a1a' if is_dark else '#ffffff')
 
         scroll_frame = ctk.CTkScrollableFrame(
             tab,
-            fg_color=bg_color,
+            fg_color=bg_color_tuple,
             scrollbar_button_color=self.colors.get('primary', '#5b9cff'),
             scrollbar_button_hover_color=self.colors.get('accent', '#4a8bf8')
         )
         scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Gemini API settings
-        api_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
+        api_frame = ctk.CTkFrame(scroll_frame, fg_color=bg_accent_tuple)
         api_frame.pack(fill="x", pady=(0, 20))
 
         ctk.CTkLabel(
@@ -4331,7 +4183,7 @@ class AmanuensisApp:
         model_dropdown.pack(anchor="w", padx=30, pady=(0, 15))
 
         # Analysis frequency
-        freq_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
+        freq_frame = ctk.CTkFrame(scroll_frame, fg_color=bg_accent_tuple)
         freq_frame.pack(fill="x", pady=(0, 20))
 
         ctk.CTkLabel(
@@ -4381,21 +4233,21 @@ class AmanuensisApp:
         """Create prompt template editor interface"""
         tab = self.settings_tabview.tab("Prompt Editor")
 
-        # Get theme colors - use self.current_theme as source of truth
-        is_dark = (self.current_theme == 'dark')
-        bg_color = self.colors.get('bg_secondary', '#1a1a1a' if is_dark else '#ffffff')
+        # Use color tuples (light, dark) for automatic theme switching
+        bg_color_tuple = ("#ffffff", "#1a1a1a")  # (light, dark)
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
 
         # Main container with horizontal split
         main_container = ctk.CTkFrame(tab, fg_color="transparent")
         main_container.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Left panel - Template library and management
-        left_panel = ctk.CTkFrame(main_container, width=300, fg_color=bg_color)
+        left_panel = ctk.CTkFrame(main_container, width=300, fg_color=bg_color_tuple)
         left_panel.pack(side="left", fill="y", padx=(0, 10))
         left_panel.pack_propagate(False)
 
         # Template library header
-        library_header = ctk.CTkFrame(left_panel, fg_color=self.colors['primary'], corner_radius=6)
+        library_header = ctk.CTkFrame(left_panel, fg_color=self.colors.get('primary', '#1e40af'), corner_radius=6)
         library_header.pack(fill="x", padx=10, pady=(10, 5))
 
         ctk.CTkLabel(
@@ -4415,7 +4267,7 @@ class AmanuensisApp:
             width=70,
             height=28,
             command=self.create_new_template,
-            fg_color=self.colors['success']
+            fg_color=self.colors.get('success', '#047857')
         )
         new_template_btn.pack(side="left", padx=(0, 5))
 
@@ -4425,7 +4277,7 @@ class AmanuensisApp:
             width=60,
             height=28,
             command=self.duplicate_template,
-            fg_color=self.colors['accent']
+            fg_color=self.colors.get('accent', '#6d28d9')
         )
         duplicate_btn.pack(side="left", padx=2)
 
@@ -4435,7 +4287,7 @@ class AmanuensisApp:
             width=60,
             height=28,
             command=self.delete_template,
-            fg_color=self.colors['danger']
+            fg_color=self.colors.get('danger', '#dc2626')
         )
         delete_btn.pack(side="left", padx=(5, 0))
 
@@ -4459,18 +4311,18 @@ class AmanuensisApp:
         self.template_listbox = ctk.CTkScrollableFrame(
             left_panel,
             height=300,
-            fg_color=bg_color,
+            fg_color=bg_color_tuple,
             scrollbar_button_color=self.colors.get('primary', '#5b9cff'),
             scrollbar_button_hover_color=self.colors.get('accent', '#4a8bf8')
         )
         self.template_listbox.pack(fill="both", expand=True, padx=10, pady=5)
 
         # Right panel - Template editor
-        right_panel = ctk.CTkFrame(main_container, fg_color=bg_color)
+        right_panel = ctk.CTkFrame(main_container, fg_color=bg_color_tuple)
         right_panel.pack(side="right", fill="both", expand=True)
 
         # Editor header
-        editor_header = ctk.CTkFrame(right_panel, fg_color=self.colors['bg_accent'], corner_radius=6)
+        editor_header = ctk.CTkFrame(right_panel, fg_color=bg_accent_tuple, corner_radius=6)
         editor_header.pack(fill="x", padx=10, pady=(10, 5))
 
         header_left = ctk.CTkFrame(editor_header, fg_color="transparent")
@@ -4492,7 +4344,7 @@ class AmanuensisApp:
             width=70,
             height=28,
             command=self.test_template,
-            fg_color=self.colors['info']
+            fg_color=self.colors.get('info', '#1d4ed8')
         )
         test_btn.pack(side="left", padx=(0, 5))
 
@@ -4502,7 +4354,7 @@ class AmanuensisApp:
             width=80,
             height=28,
             command=self.validate_current_template,
-            fg_color=self.colors['warning']
+            fg_color=self.colors.get('warning', '#b45309')
         )
         validate_btn.pack(side="left", padx=(0, 5))
 
@@ -4512,12 +4364,12 @@ class AmanuensisApp:
             width=70,
             height=28,
             command=self.save_template,
-            fg_color=self.colors['success']
+            fg_color=self.colors.get('success', '#047857')
         )
         save_btn.pack(side="left")
 
         # Template metadata
-        metadata_frame = ctk.CTkFrame(right_panel, fg_color=self.colors['bg_accent'])
+        metadata_frame = ctk.CTkFrame(right_panel, fg_color=bg_accent_tuple)
         metadata_frame.pack(fill="x", padx=10, pady=5)
 
         # Template name and description
@@ -4546,7 +4398,7 @@ class AmanuensisApp:
         self.template_description.pack(fill="x", pady=(5, 0))
 
         # Variable helper panel
-        helper_frame = ctk.CTkFrame(right_panel, fg_color=self.colors['bg_accent'])
+        helper_frame = ctk.CTkFrame(right_panel, fg_color=bg_accent_tuple)
         helper_frame.pack(fill="x", padx=10, pady=5)
 
         helper_header = ctk.CTkFrame(helper_frame, fg_color="transparent")
@@ -4564,7 +4416,7 @@ class AmanuensisApp:
             width=80,
             height=24,
             command=self.toggle_variable_guide,
-            fg_color=self.colors['info']
+            fg_color=self.colors.get('info', '#1d4ed8')
         )
         self.show_variables_btn.pack(side="right")
 
@@ -4592,7 +4444,7 @@ class AmanuensisApp:
                 width=90,
                 height=28,
                 command=lambda v=var: self.insert_variable(v),
-                fg_color=self.colors['accent']
+                fg_color=self.colors.get('accent', '#6d28d9')
             )
             btn.grid(row=row, column=col, padx=2, pady=2, sticky="ew")
 
@@ -4601,7 +4453,7 @@ class AmanuensisApp:
             self.variable_buttons_frame.grid_columnconfigure(i, weight=1)
 
         # Prompt editor
-        editor_frame = ctk.CTkFrame(right_panel, fg_color=self.colors['bg_accent'])
+        editor_frame = ctk.CTkFrame(right_panel, fg_color=bg_accent_tuple)
         editor_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         # Editor label and token counter
@@ -4618,7 +4470,7 @@ class AmanuensisApp:
             editor_label_frame,
             text="Tokens: 0",
             font=ctk.CTkFont(size=10),
-            text_color=self.colors['text_secondary']
+            text_color=self.colors.get('text_secondary', '#e0e0e0')
         )
         self.token_counter_label.pack(side="right")
 
@@ -4637,151 +4489,24 @@ class AmanuensisApp:
         # Load templates on initialization
         self.load_templates()
 
-    def create_phi_settings_tab(self):
-        """Create PHI detection settings"""
-        tab = self.settings_tabview.tab("PHI Detection")
-
-        # Get theme colors - use self.current_theme as source of truth
-        is_dark = (self.current_theme == 'dark')
-        bg_color = self.colors.get('bg_secondary', '#1a1a1a' if is_dark else '#ffffff')
-
-        scroll_frame = ctk.CTkScrollableFrame(
-            tab,
-            fg_color=bg_color,
-            scrollbar_button_color=self.colors.get('primary', '#5b9cff'),
-            scrollbar_button_hover_color=self.colors.get('accent', '#4a8bf8')
-        )
-        scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # PHI Detection settings
-        phi_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
-        phi_frame.pack(fill="x", pady=(0, 20))
-
-        ctk.CTkLabel(
-            phi_frame,
-            text="PHI Detection Configuration",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
-        ).pack(anchor="w", padx=15, pady=(15, 10))
-
-        # Enable PHI detection
-        self.phi_enabled_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(
-            phi_frame,
-            text="Enable PHI detection",
-            variable=self.phi_enabled_var,
-            fg_color=self.colors.get('primary', '#5b9cff'),
-            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529'),
-            border_color=self.colors.get('border_defined', '#2b2b2b' if is_dark else '#adb5bd')
-        ).pack(anchor="w", padx=30, pady=5)
-
-        # Auto-approve timeout
-        self.auto_approve_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            phi_frame,
-            text="Auto-approve PHI segments after timeout",
-            variable=self.auto_approve_var,
-            fg_color=self.colors.get('primary', '#5b9cff'),
-            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529'),
-            border_color=self.colors.get('border_defined', '#2b2b2b' if is_dark else '#adb5bd')
-        ).pack(anchor="w", padx=30, pady=5)
-
-        self.timeout_var = ctk.DoubleVar(value=30.0)
-        timeout_controls = ctk.CTkFrame(phi_frame, fg_color="transparent")
-        timeout_controls.pack(fill="x", padx=30, pady=5)
-
-        ctk.CTkLabel(
-            timeout_controls,
-            text="Timeout (seconds):",
-            font=ctk.CTkFont(size=12),
-            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
-        ).pack(side="left")
-
-        timeout_slider = ctk.CTkSlider(
-            timeout_controls,
-            from_=10,
-            to=120,
-            variable=self.timeout_var,
-            width=150,
-            fg_color=self.colors.get('border_defined', '#2b2b2b' if is_dark else '#adb5bd'),
-            progress_color=self.colors.get('primary', '#5b9cff'),
-            button_color=self.colors.get('primary', '#5b9cff'),
-            button_hover_color=self.colors.get('accent_hover', '#4a8bf8')
-        )
-        timeout_slider.pack(side="left", padx=10)
-
-        self.timeout_value_label = ctk.CTkLabel(
-            timeout_controls,
-            text="30s",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
-        )
-        self.timeout_value_label.pack(side="left", padx=5)
-        timeout_slider.configure(command=lambda v: self.timeout_value_label.configure(text=f"{int(v)}s"))
-
-        # Sensitivity threshold
-        sens_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
-        sens_frame.pack(fill="x", pady=(0, 20))
-
-        ctk.CTkLabel(
-            sens_frame,
-            text="Detection Sensitivity",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
-        ).pack(anchor="w", padx=15, pady=(15, 10))
-
-        self.sensitivity_var = ctk.DoubleVar(value=0.7)
-
-        sens_controls = ctk.CTkFrame(sens_frame, fg_color="transparent")
-        sens_controls.pack(fill="x", padx=30, pady=(0, 15))
-
-        ctk.CTkLabel(
-            sens_controls,
-            text="Threshold:",
-            font=ctk.CTkFont(size=12),
-            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
-        ).pack(side="left")
-
-        sens_slider = ctk.CTkSlider(
-            sens_controls,
-            from_=0.1,
-            to=1.0,
-            variable=self.sensitivity_var,
-            width=200,
-            fg_color=self.colors.get('border_defined', '#2b2b2b' if is_dark else '#adb5bd'),
-            progress_color=self.colors.get('primary', '#5b9cff'),
-            button_color=self.colors.get('primary', '#5b9cff'),
-            button_hover_color=self.colors.get('accent_hover', '#4a8bf8')
-        )
-        sens_slider.pack(side="left", padx=10)
-
-        self.sens_value_label = ctk.CTkLabel(
-            sens_controls,
-            text="0.7",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
-        )
-        self.sens_value_label.pack(side="left", padx=5)
-        sens_slider.configure(command=lambda v: self.sens_value_label.configure(text=f"{v:.1f}"))
-
     def create_audio_settings_tab(self):
         """Create audio configuration settings"""
         tab = self.settings_tabview.tab("Audio")
 
-        # Get theme colors - use self.current_theme as source of truth
-        is_dark = (self.current_theme == 'dark')
-        bg_color = self.colors.get('bg_secondary', '#1a1a1a' if is_dark else '#ffffff')
+        # Use color tuples (light, dark) for automatic theme switching
+        bg_color_tuple = ("#ffffff", "#1a1a1a")  # (light, dark)
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
 
         scroll_frame = ctk.CTkScrollableFrame(
             tab,
-            fg_color=bg_color,
+            fg_color=bg_color_tuple,
             scrollbar_button_color=self.colors.get('primary', '#5b9cff'),
             scrollbar_button_hover_color=self.colors.get('accent', '#4a8bf8')
         )
         scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Buffer settings
-        buffer_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
+        buffer_frame = ctk.CTkFrame(scroll_frame, fg_color=bg_accent_tuple)
         buffer_frame.pack(fill="x", pady=(0, 20))
 
         ctk.CTkLabel(
@@ -4823,11 +4548,11 @@ class AmanuensisApp:
             buffer_frame,
             text="Lower delay = faster transcription but less accuracy. 30s recommended.",
             font=ctk.CTkFont(size=10),
-            text_color=self.colors['text_muted']
+            text_color=self.colors.get('text_muted', '#b0b0b0')
         ).pack(anchor="w", padx=30, pady=(0, 15))
 
         # Quality settings
-        quality_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
+        quality_frame = ctk.CTkFrame(scroll_frame, fg_color=bg_accent_tuple)
         quality_frame.pack(fill="x", pady=(0, 20))
 
         ctk.CTkLabel(
@@ -4857,7 +4582,7 @@ class AmanuensisApp:
         ).pack(anchor="w", padx=30, pady=(15, 15))
 
         # HuggingFace Token for Speaker Diarization
-        hf_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
+        hf_frame = ctk.CTkFrame(scroll_frame, fg_color=bg_accent_tuple)
         hf_frame.pack(fill="x", pady=(0, 20))
 
         ctk.CTkLabel(
@@ -4907,7 +4632,7 @@ class AmanuensisApp:
             hf_frame,
             text=instructions,
             font=ctk.CTkFont(size=10),
-            text_color=self.colors['text_muted'],
+            text_color=self.colors.get('text_muted', '#b0b0b0'),
             justify="left"
         ).pack(anchor="w", padx=30, pady=(0, 10))
 
@@ -4928,7 +4653,7 @@ class AmanuensisApp:
             hf_frame,
             text="",
             font=ctk.CTkFont(size=10),
-            text_color=self.colors['text_muted']
+            text_color=self.colors.get('text_muted', '#b0b0b0')
         )
         self.token_status_label.pack(anchor="w", padx=30, pady=(0, 15))
 
@@ -4945,20 +4670,20 @@ class AmanuensisApp:
         """Create export and session settings"""
         tab = self.settings_tabview.tab("Export")
 
-        # Get theme colors - use self.current_theme as source of truth
-        is_dark = (self.current_theme == 'dark')
-        bg_color = self.colors.get('bg_secondary', '#1a1a1a' if is_dark else '#ffffff')
+        # Use color tuples (light, dark) for automatic theme switching
+        bg_color_tuple = ("#ffffff", "#1a1a1a")  # (light, dark)
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
 
         scroll_frame = ctk.CTkScrollableFrame(
             tab,
-            fg_color=bg_color,
+            fg_color=bg_color_tuple,
             scrollbar_button_color=self.colors.get('primary', '#5b9cff'),
             scrollbar_button_hover_color=self.colors.get('accent', '#4a8bf8')
         )
         scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Export formats
-        export_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
+        export_frame = ctk.CTkFrame(scroll_frame, fg_color=bg_accent_tuple)
         export_frame.pack(fill="x", pady=(0, 20))
 
         ctk.CTkLabel(
@@ -4990,7 +4715,7 @@ class AmanuensisApp:
         ).pack(anchor="w", padx=30, pady=(15, 15))
 
         # Session naming
-        naming_frame = ctk.CTkFrame(scroll_frame, fg_color=self.colors['bg_accent'])
+        naming_frame = ctk.CTkFrame(scroll_frame, fg_color=bg_accent_tuple)
         naming_frame.pack(fill="x", pady=(0, 20))
 
         ctk.CTkLabel(
@@ -5131,16 +4856,6 @@ class AmanuensisApp:
                     self.analysis_slider.set(self.analysis_frequency)
                     self.analysis_value_label.configure(text=f"{self.analysis_frequency}s")
 
-            # Apply PHI settings
-            if hasattr(self, 'phi_enabled_var'):
-                self.phi_enabled = self.phi_enabled_var.get()
-                if hasattr(self, 'phi_checkbox'):
-                    self.phi_checkbox.configure(variable=self.phi_enabled_var)
-
-            if hasattr(self, 'auto_approve_var'):
-                self.auto_approve_enabled = self.auto_approve_var.get()
-                self.phi_timeout_seconds = int(self.timeout_var.get())
-
             # Apply audio settings
             if hasattr(self, 'buffer_duration_var'):
                 self.buffer_duration = int(self.buffer_duration_var.get())
@@ -5247,12 +4962,6 @@ class AmanuensisApp:
                     'model': self.model_var.get() if hasattr(self, 'model_var') else 'claude-3-sonnet-20240229',
                     'frequency': int(self.frequency_var.get()) if hasattr(self, 'frequency_var') else 120
                 },
-                'phi_detection': {
-                    'enabled': self.phi_enabled_var.get() if hasattr(self, 'phi_enabled_var') else True,
-                    'auto_approve': self.auto_approve_var.get() if hasattr(self, 'auto_approve_var') else False,
-                    'timeout': int(self.timeout_var.get()) if hasattr(self, 'timeout_var') else 30,
-                    'sensitivity': self.sensitivity_var.get() if hasattr(self, 'sensitivity_var') else 0.7
-                },
                 'audio': {
                     'buffer_duration': int(self.buffer_duration_var.get()) if hasattr(self, 'buffer_duration_var') else 30,
                     'quality': self.quality_var.get() if hasattr(self, 'quality_var') else 'medium',
@@ -5280,6 +4989,7 @@ class AmanuensisApp:
     def load_settings_from_config(self):
         """Load settings from configuration file with robust error handling"""
         try:
+            print(f"Loading settings - current_theme before load: {getattr(self, 'current_theme', 'NOT_SET')}")
             if Path('amanuensis_settings.json').exists():
                 with open('amanuensis_settings.json', 'r', encoding='utf-8') as f:
                     config = json.load(f)
@@ -5290,9 +5000,12 @@ class AmanuensisApp:
                     if 'dashboard' in config and isinstance(config['dashboard'], dict):
                         dashboard = config['dashboard']
                         if 'appearance_mode' in dashboard and dashboard['appearance_mode'] in ['light', 'dark']:
-                            self.current_theme = dashboard['appearance_mode']
+                            loaded_theme = dashboard['appearance_mode']
+                            print(f"Config loaded appearance_mode: {loaded_theme}")
+                            self.current_theme = loaded_theme
                             if hasattr(self, 'layout_preferences'):
-                                self.layout_preferences['theme'] = dashboard['appearance_mode']
+                                self.layout_preferences['theme'] = loaded_theme
+                            print(f"Theme set to: {self.current_theme}")
                             self.setup_professional_theme()  # Reapply theme
 
                     # Layout settings with validation
@@ -5324,14 +5037,6 @@ class AmanuensisApp:
                         analysis = config['analysis']
                         if 'frequency' in analysis and isinstance(analysis['frequency'], (int, float)):
                             self.analysis_frequency = max(30, min(600, int(analysis['frequency'])))
-
-                    # PHI detection settings
-                    if 'phi_detection' in config and isinstance(config['phi_detection'], dict):
-                        phi = config['phi_detection']
-                        if 'enabled' in phi and isinstance(phi['enabled'], bool):
-                            self.phi_enabled = phi['enabled']
-                        if 'timeout' in phi and isinstance(phi['timeout'], (int, float)):
-                            self.phi_timeout_seconds = max(10, min(120, int(phi['timeout'])))
 
                     # Audio settings
                     if 'audio' in config and isinstance(config['audio'], dict):
@@ -5403,7 +5108,6 @@ class AmanuensisApp:
             required_attrs = {
                 'dashboard_state': {
                     'analysis_visible': True,
-                    'phi_queue_count': 0,
                     'current_insights': [],
                     'risk_level': 'LOW',
                     'session_active': False
@@ -5463,7 +5167,6 @@ class AmanuensisApp:
             # Emergency fallback initialization
             self.dashboard_state = {
                 'analysis_visible': True,
-                'phi_queue_count': 0,
                 'current_insights': [],
                 'risk_level': 'LOW',
                 'session_active': False
@@ -5532,12 +5235,6 @@ class AmanuensisApp:
                 self.model_var.set('claude-3-sonnet-20240229')
             if hasattr(self, 'frequency_var'):
                 self.frequency_var.set(120.0)
-            if hasattr(self, 'phi_enabled_var'):
-                self.phi_enabled_var.set(True)
-            if hasattr(self, 'auto_approve_var'):
-                self.auto_approve_var.set(False)
-            if hasattr(self, 'timeout_var'):
-                self.timeout_var.set(30.0)
             if hasattr(self, 'sensitivity_var'):
                 self.sensitivity_var.set(0.7)
             if hasattr(self, 'buffer_duration_var'):
@@ -5650,7 +5347,7 @@ class AmanuensisApp:
             # Item frame
             item_frame = ctk.CTkFrame(
                 self.template_listbox,
-                fg_color=self.colors['bg_secondary'] if index % 2 == 0 else self.colors['bg_accent'],
+                fg_color=self.colors.get('bg_secondary', '#2d2d2d') if index % 2 == 0 else bg_accent_tuple,
                 corner_radius=4
             )
             item_frame.pack(fill="x", pady=2, padx=5)
@@ -5679,18 +5376,18 @@ class AmanuensisApp:
             # Category badge
             category = template.get('category', 'custom')
             category_colors = {
-                'real-time': self.colors['info'],
-                'risk-assessment': self.colors['danger'],
-                'session-summary': self.colors['success'],
-                'progress-tracking': self.colors['accent'],
-                'custom': self.colors['text_muted']
+                'real-time': self.colors.get('info', '#1d4ed8'),
+                'risk-assessment': self.colors.get('danger', '#dc2626'),
+                'session-summary': self.colors.get('success', '#047857'),
+                'progress-tracking': self.colors.get('accent', '#6d28d9'),
+                'custom': self.colors.get('text_muted', '#b0b0b0')
             }
 
             category_label = ctk.CTkLabel(
                 info_frame,
                 text=category.replace('-', ' ').title(),
                 font=ctk.CTkFont(size=9),
-                fg_color=category_colors.get(category, self.colors['text_muted']),
+                fg_color=category_colors.get(category, self.colors.get('text_muted', '#b0b0b0')),
                 corner_radius=4,
                 text_color="white",
                 width=80,
@@ -5706,7 +5403,7 @@ class AmanuensisApp:
                     info_frame,
                     text=description[:50] + "..." if len(description) > 50 else description,
                     font=ctk.CTkFont(size=10),
-                    text_color=self.colors['text_secondary'],
+                    text_color=self.colors.get('text_secondary', '#e0e0e0'),
                     anchor="w"
                 )
                 desc_label.pack(anchor="w", pady=(2, 0))
@@ -5746,6 +5443,15 @@ class AmanuensisApp:
     def create_new_template(self):
         """Create a new blank template"""
         try:
+            # Ensure settings modal and prompt editor tab are initialized
+            if not hasattr(self, 'template_name_entry'):
+                print("ERROR: Prompt editor not initialized. Opening settings first...")
+                self.show_settings_modal()
+                # Switch to Prompt Editor tab
+                if hasattr(self, 'settings_tabview'):
+                    self.settings_tabview.set("Prompt Editor")
+                return
+            
             # Clear editor
             self.current_template = None
             self.template_name_entry.delete(0, "end")
@@ -5894,11 +5600,11 @@ Provide structured analysis in 200-300 words."""
 
             # Color code based on typical API limits
             if estimated_tokens < 1000:
-                color = self.colors['success']
+                color = self.colors.get('success', '#047857')
             elif estimated_tokens < 2000:
-                color = self.colors['warning']
+                color = self.colors.get('warning', '#b45309')
             else:
-                color = self.colors['danger']
+                color = self.colors.get('danger', '#dc2626')
 
             self.token_counter_label.configure(
                 text=f"Tokens: ~{estimated_tokens}",
@@ -6013,7 +5719,7 @@ Provide structured analysis in 200-300 words."""
             test_window.transient(self.settings_window)
 
             # Header
-            header = ctk.CTkFrame(test_window, fg_color=self.colors['info'])
+            header = ctk.CTkFrame(test_window, fg_color=self.colors.get('info', '#1d4ed8'))
             header.pack(fill="x", padx=10, pady=(10, 5))
 
             ctk.CTkLabel(
@@ -6150,7 +5856,7 @@ Provide structured analysis in 200-300 words."""
                 analysis_tab = self.settings_tabview.tab("Analysis")
 
                 # Add template selection section
-                template_frame = ctk.CTkFrame(analysis_tab, fg_color=self.colors['bg_accent'])
+                template_frame = ctk.CTkFrame(analysis_tab, fg_color=bg_accent_tuple)
                 template_frame.pack(fill="x", pady=(20, 0), padx=10)
 
                 ctk.CTkLabel(
@@ -6288,7 +5994,7 @@ Provide structured analysis in 200-300 words."""
             validation_window.transient(self.settings_window)
 
             # Header
-            header_color = self.colors['success'] if validation_results['valid'] else self.colors['warning']
+            header_color = self.colors.get('success', '#047857') if validation_results['valid'] else self.colors.get('warning', '#b45309')
             header = ctk.CTkFrame(validation_window, fg_color=header_color)
             header.pack(fill="x", padx=10, pady=(10, 5))
 
@@ -6306,7 +6012,7 @@ Provide structured analysis in 200-300 words."""
 
             # Show errors
             if validation_results['errors']:
-                error_frame = ctk.CTkFrame(results_frame, fg_color=self.colors['danger'])
+                error_frame = ctk.CTkFrame(results_frame, fg_color=self.colors.get('danger', '#dc2626'))
                 error_frame.pack(fill="x", pady=(0, 10))
 
                 ctk.CTkLabel(
@@ -6327,7 +6033,7 @@ Provide structured analysis in 200-300 words."""
 
             # Show warnings
             if validation_results['warnings']:
-                warning_frame = ctk.CTkFrame(results_frame, fg_color=self.colors['warning'])
+                warning_frame = ctk.CTkFrame(results_frame, fg_color=self.colors.get('warning', '#b45309'))
                 warning_frame.pack(fill="x", pady=(0, 10))
 
                 ctk.CTkLabel(
@@ -6348,7 +6054,7 @@ Provide structured analysis in 200-300 words."""
 
             # Show suggestions
             if validation_results['suggestions']:
-                suggestion_frame = ctk.CTkFrame(results_frame, fg_color=self.colors['info'])
+                suggestion_frame = ctk.CTkFrame(results_frame, fg_color=self.colors.get('info', '#1d4ed8'))
                 suggestion_frame.pack(fill="x", pady=(0, 10))
 
                 ctk.CTkLabel(
@@ -6369,7 +6075,7 @@ Provide structured analysis in 200-300 words."""
 
             # If all good
             if validation_results['valid'] and not validation_results['warnings'] and not validation_results['suggestions']:
-                success_frame = ctk.CTkFrame(results_frame, fg_color=self.colors['success'])
+                success_frame = ctk.CTkFrame(results_frame, fg_color=self.colors.get('success', '#047857'))
                 success_frame.pack(fill="x", pady=(0, 10))
 
                 ctk.CTkLabel(
@@ -6576,19 +6282,6 @@ Provide structured analysis in 200-300 words."""
 
         print(f"Using {overlap_seconds}s overlap for {self.diarization_buffer_size}s buffer")
         return overlap_seconds
-
-    def update_phi_review_mode(self):
-        """Update PHI review mode"""
-        if not PHI_DETECTION_AVAILABLE:
-            return
-
-        self.phi_enabled = self.phi_review_var.get()
-        if self.phi_enabled and self.phi_analyzer:
-            self.set_status("PHI detection enabled")
-            # Start PHI review queue processing
-            self.root.after(100, self.process_phi_review_queue)
-        else:
-            self.set_status("PHI detection disabled")
 
     def update_insight_window_label(self, value):
         """Update insight time window label"""
@@ -9118,508 +8811,6 @@ Session Insights:
                 self.stop_analysis_loop()
 
     # ===================================================================
-    # PHI DETECTION SYSTEM - Fixed Custom Recognizers
-    # ===================================================================
-
-    def load_phi_models(self):
-        """Load Microsoft Presidio models for PHI detection"""
-        if not PHI_DETECTION_AVAILABLE:
-            print("PHI detection not available - missing dependencies")
-            return
-
-        try:
-            print("Loading PHI detection models...")
-
-            # Initialize Presidio Analyzer
-            self.phi_analyzer = AnalyzerEngine()
-
-            # Create therapy-specific custom recognizers with proper Pattern objects
-            self.add_therapy_recognizers()
-
-            # Initialize Presidio Anonymizer
-            self.phi_anonymizer = AnonymizerEngine()
-
-            print("PHI detection models loaded successfully")
-
-        except Exception as e:
-            print(f"Failed to load PHI detection models: {e}")
-            self.phi_analyzer = None
-            self.phi_anonymizer = None
-
-    def add_therapy_recognizers(self):
-        """Add custom recognizers for therapy-specific PHI patterns with proper error handling"""
-        if not self.phi_analyzer:
-            return
-
-        try:
-            # Family relationship recognizer with corrected Pattern objects
-            family_patterns = [
-                Pattern(
-                    name="family_relation_with_name",
-                    regex=r"\b(?:my|his|her|their)\s+(?:wife|husband|mother|father|mom|dad|sister|brother|son|daughter|child|children|parent|parents|family|spouse|partner)\s+([A-Z][a-z]+)\b",
-                    score=0.85
-                ),
-                Pattern(
-                    name="name_family_relation",
-                    regex=r"\b([A-Z][a-z]+)\s+(?:is|was)\s+(?:my|his|her|their)\s+(?:wife|husband|mother|father|mom|dad|sister|brother|son|daughter|child|parent|spouse|partner)\b",
-                    score=0.85
-                )
-            ]
-
-            family_recognizer = PatternRecognizer(
-                supported_entity="FAMILY_RELATION",
-                patterns=family_patterns,
-                name="family_relation_recognizer"
-            )
-            self.phi_analyzer.registry.add_recognizer(family_recognizer)
-
-            # Workplace recognizer with corrected patterns
-            workplace_patterns = [
-                Pattern(
-                    name="boss_at_company",
-                    regex=r"\b(?:my|his|her|their)\s+(?:boss|manager|supervisor|colleague|coworker|employee)\s+(?:at\s+)?([A-Z][a-zA-Z\s&]{2,20})\b",
-                    score=0.8
-                ),
-                Pattern(
-                    name="work_for_company",
-                    regex=r"\b(?:works?|working)\s+(?:at|for)\s+([A-Z][a-zA-Z\s&]{2,20})\b",
-                    score=0.8
-                ),
-                Pattern(
-                    name="company_mention",
-                    regex=r"\b(?:company|organization|business|firm|office)\s+(?:called|named)?\s*([A-Z][a-zA-Z\s&]{2,20})\b",
-                    score=0.7
-                )
-            ]
-
-            workplace_recognizer = PatternRecognizer(
-                supported_entity="WORKPLACE",
-                patterns=workplace_patterns,
-                name="workplace_recognizer"
-            )
-            self.phi_analyzer.registry.add_recognizer(workplace_recognizer)
-
-            # Healthcare provider recognizer
-            healthcare_patterns = [
-                Pattern(
-                    name="doctor_title_name",
-                    regex=r"\b(?:Dr|Doctor|Therapist|Counselor|Psychiatrist|Psychologist)[\.\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b",
-                    score=0.9
-                ),
-                Pattern(
-                    name="my_doctor_name",
-                    regex=r"\b(?:my|his|her|their)\s+(?:doctor|therapist|counselor|psychiatrist|psychologist)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b",
-                    score=0.9
-                )
-            ]
-
-            healthcare_recognizer = PatternRecognizer(
-                supported_entity="HEALTHCARE_PROVIDER",
-                patterns=healthcare_patterns,
-                name="healthcare_provider_recognizer"
-            )
-            self.phi_analyzer.registry.add_recognizer(healthcare_recognizer)
-
-            # School/Education recognizer
-            education_patterns = [
-                Pattern(
-                    name="school_name",
-                    regex=r"\b(?:school|university|college)\s+(?:called|named)?\s*([A-Z][a-zA-Z\s&]{2,30})\b",
-                    score=0.7
-                ),
-                Pattern(
-                    name="attend_school",
-                    regex=r"\b(?:goes?|going|attend(?:s|ing)?)\s+(?:to\s+)?([A-Z][a-zA-Z\s&]+(?:School|University|College))\b",
-                    score=0.8
-                )
-            ]
-
-            education_recognizer = PatternRecognizer(
-                supported_entity="EDUCATION",
-                patterns=education_patterns,
-                name="education_recognizer"
-            )
-            self.phi_analyzer.registry.add_recognizer(education_recognizer)
-
-            print("Custom therapy recognizers added successfully")
-
-        except Exception as e:
-            print(f"Failed to add custom recognizers: {e}")
-            print("Continuing with default Presidio recognizers only")
-
-    def process_transcription_with_phi(self, turn_data):
-        """Process a structured transcript turn through the PHI detection workflow."""
-        if not self.phi_enabled or not self.phi_analyzer:
-            # If PHI is disabled, append the turn directly.
-            self._append_transcript_turn(**turn_data)
-            return
-
-        try:
-            text = turn_data.get('text', '')
-            if len(text.strip()) < 10:  # Skip very short segments
-                self._append_transcript_turn(**turn_data)
-                return
-
-            phi_results = self.analyze_phi(text)
-
-            if phi_results:
-                # PHI detected - create anonymized version and queue for review.
-                anonymized_result = self.phi_anonymizer.anonymize(text=text, analyzer_results=phi_results)
-                anonymized_text = anonymized_result.text
-
-                # The turn_id is essential for updating the text upon approval.
-                turn_id = turn_data.get('id', str(uuid.uuid4()))
-                turn_data['id'] = turn_id # Ensure ID is in the dict
-
-                # Queue the original data for the review UI.
-                review_data = {
-                    'turn_data': turn_data, # Store the full original turn
-                    'phi_results': phi_results,
-                    'anonymized_text': anonymized_text
-                }
-                self.phi_review_queue.put(review_data)
-                print(f"PHI detected in turn {turn_id}, queued for review.")
-
-                # Append the anonymized version to the transcript for now.
-                self._append_transcript_turn(
-                    speaker=turn_data['speaker'],
-                    text=anonymized_text,
-                    abs_start=turn_data['start'],
-                    abs_end=turn_data['end'],
-                    is_phi=True, # Flag this turn as containing PHI
-                    turn_id=turn_id
-                )
-            else:
-                # No PHI detected - append the original turn directly.
-                self._append_transcript_turn(**turn_data)
-
-        except Exception as e:
-            print(f"PHI processing error: {e}")
-            # Fallback: append original turn data on error.
-            self._append_transcript_turn(**turn_data)
-
-    def extract_plain_text(self, formatted_text):
-        """Extract plain text from formatted transcript entry"""
-        try:
-            # Remove timestamp and speaker label: "[HH:MM:SS] [SPEAKER]: text"
-            pattern = r'^\[\d{2}:\d{2}:\d{2}\]\s*\[\w+\]:\s*(.+)$'
-            match = re.match(pattern, formatted_text.strip())
-            if match:
-                return match.group(1).strip()
-            else:
-                return formatted_text.strip()
-        except Exception as e:
-            print(f"Text extraction error: {e}")
-            return formatted_text.strip()
-
-    def analyze_phi(self, text):
-        """Analyze text for PHI using Presidio with high recall settings"""
-        if not self.phi_analyzer:
-            return []
-
-        try:
-            # Configure for high recall (conservative - catch more potential PHI)
-            results = self.phi_analyzer.analyze(
-                text=text,
-                language='en',
-                score_threshold=0.1  # Low threshold for high recall
-            )
-
-            # Filter and enhance results for therapy context
-            enhanced_results = []
-            for result in results:
-                enhanced_result = {
-                    'entity_type': result.entity_type,
-                    'start': result.start,
-                    'end': result.end,
-                    'score': result.score,
-                    'text': text[result.start:result.end]
-                }
-                enhanced_results.append(enhanced_result)
-
-            return enhanced_results
-
-        except Exception as e:
-            print(f"PHI analysis error: {e}")
-            return []
-
-    def process_phi_review_queue(self):
-        """Process PHI review queue and show review interface"""
-        try:
-            if not self.phi_review_queue.empty() and not self.current_phi_segment:
-                segment_data = self.phi_review_queue.get_nowait()
-                self.current_phi_segment = segment_data
-                self.show_phi_review_interface(segment_data)
-
-        except queue.Empty:
-            pass
-        except Exception as e:
-            print(f"PHI review queue error: {e}")
-
-        # Schedule next check
-        if self.phi_enabled:
-            self.root.after(100, self.process_phi_review_queue)
-
-    def show_phi_review_interface(self, segment_data):
-        """Show PHI review interface for manual review"""
-        if self.phi_review_window and self.phi_review_window.winfo_exists():
-            self.phi_review_window.lift()
-            return
-
-        try:
-            # Create review window
-            self.phi_review_window = ctk.CTkToplevel(self.root)
-            self.phi_review_window.title("PHI Review Required")
-            self.phi_review_window.geometry("800x600")
-            self.phi_review_window.grab_set()  # Modal window
-
-            # Main frame
-            main_frame = ctk.CTkFrame(self.phi_review_window)
-            main_frame.pack(fill="both", expand=True, padx=20, pady=20)
-
-            # Title
-            title_label = ctk.CTkLabel(
-                main_frame,
-                text="PHI Detected - Manual Review Required",
-                font=ctk.CTkFont(size=18, weight="bold")
-            )
-            title_label.pack(pady=(20, 10))
-
-            # PHI info
-            phi_count = len(segment_data['phi_results'])
-            info_label = ctk.CTkLabel(
-                main_frame,
-                text=f"Found {phi_count} potential PHI entities requiring review",
-                font=ctk.CTkFont(size=12)
-            )
-            info_label.pack(pady=(0, 20))
-
-            # Text display with highlighting
-            text_frame = ctk.CTkFrame(main_frame)
-            text_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
-
-            text_label = ctk.CTkLabel(text_frame, text="Transcript Segment:", font=ctk.CTkFont(size=14, weight="bold"))
-            text_label.pack(pady=(20, 10))
-
-            # Create text widget for highlighting
-            self.phi_text_widget = tk.Text(
-                text_frame,
-                wrap="word",
-                height=8,
-                font=("Arial", 12),
-                bg="white",
-                fg="black"
-            )
-            self.phi_text_widget.pack(fill="both", expand=True, padx=20, pady=(0, 20))
-
-            # Display text with PHI highlighting
-            self.display_text_with_phi_highlighting(segment_data)
-
-            # Individual PHI entities list
-            entities_label = ctk.CTkLabel(text_frame, text="Detected PHI Entities:", font=ctk.CTkFont(size=14, weight="bold"))
-            entities_label.pack(pady=(10, 5))
-
-            entities_frame = ctk.CTkScrollableFrame(text_frame)
-            entities_frame.pack(fill="x", padx=20, pady=(0, 20))
-
-            for i, phi_entity in enumerate(segment_data['phi_results']):
-                entity_text = f"{phi_entity['entity_type']}: '{phi_entity['text']}' (Score: {phi_entity['score']:.2f})"
-                entity_label = ctk.CTkLabel(entities_frame, text=entity_text, font=ctk.CTkFont(size=10))
-                entity_label.pack(pady=2, anchor="w")
-
-            # Editable text area
-            edit_label = ctk.CTkLabel(main_frame, text="Edit transcript (make any necessary changes):", font=ctk.CTkFont(size=14, weight="bold"))
-            edit_label.pack(pady=(0, 10))
-
-            self.phi_edit_textbox = ctk.CTkTextbox(
-                main_frame,
-                height=100,
-                font=ctk.CTkFont(size=12)
-            )
-            self.phi_edit_textbox.pack(fill="x", padx=20, pady=(0, 20))
-
-            # Pre-fill with original text
-            self.phi_edit_textbox.insert("1.0", segment_data['original_text'])
-
-            # Control buttons
-            button_frame = ctk.CTkFrame(main_frame)
-            button_frame.pack(fill="x", padx=20, pady=(0, 20))
-
-            # Redaction buttons
-            redact_all_btn = ctk.CTkButton(
-                button_frame,
-                text="Redact All Highlighted",
-                command=lambda: self.redact_all_phi(segment_data),
-                fg_color="orange"
-            )
-            redact_all_btn.pack(side="left", padx=5)
-
-            # Approve and send
-            approve_btn = ctk.CTkButton(
-                button_frame,
-                text="Approve & Send",
-                command=lambda: self.approve_phi_segment(segment_data),
-                fg_color="green"
-            )
-            approve_btn.pack(side="right", padx=5)
-
-            # Skip segment
-            skip_btn = ctk.CTkButton(
-                button_frame,
-                text="Skip Segment",
-                command=lambda: self.skip_phi_segment(segment_data),
-                fg_color="red"
-            )
-            skip_btn.pack(side="right", padx=5)
-
-            # Timeout handling
-            self.phi_timeout_start = time.time()
-            self.phi_timeout_id = self.root.after(1000, self.update_phi_timeout)
-
-        except Exception as e:
-            print(f"PHI review interface error: {e}")
-            self.close_phi_review_window()
-
-    def display_text_with_phi_highlighting(self, segment_data):
-        """Display text with PHI entities highlighted"""
-        try:
-            text = segment_data['plain_text']
-            phi_results = segment_data['phi_results']
-
-            self.phi_text_widget.delete("1.0", "end")
-            self.phi_text_widget.insert("1.0", text)
-
-            # Configure highlighting tags
-            self.phi_text_widget.tag_configure("phi_highlight", background="yellow", foreground="red")
-
-            # Highlight PHI entities
-            for phi_entity in phi_results:
-                start_pos = f"1.0+{phi_entity['start']}c"
-                end_pos = f"1.0+{phi_entity['end']}c"
-                self.phi_text_widget.tag_add("phi_highlight", start_pos, end_pos)
-
-        except Exception as e:
-            print(f"PHI highlighting error: {e}")
-
-    def redact_all_phi(self, segment_data):
-        """Redact all detected PHI entities"""
-        try:
-            text = segment_data['original_text']
-            plain_text = segment_data['plain_text']
-            phi_results = sorted(segment_data['phi_results'], key=lambda x: x['start'], reverse=True)
-
-            # Redact from end to start to maintain indices
-            redacted_plain = plain_text
-            for phi_entity in phi_results:
-                entity_type = phi_entity['entity_type']
-                start = phi_entity['start']
-                end = phi_entity['end']
-
-                # Replace with redaction placeholder
-                placeholder = f"[{entity_type}]"
-                redacted_plain = redacted_plain[:start] + placeholder + redacted_plain[end:]
-
-            # Update the original text format
-            redacted_text = text.replace(plain_text, redacted_plain)
-
-            # Update edit textbox
-            self.phi_edit_textbox.delete("1.0", "end")
-            self.phi_edit_textbox.insert("1.0", redacted_text)
-
-        except Exception as e:
-            print(f"PHI redaction error: {e}")
-
-    def approve_phi_segment(self, review_data):
-        """Approve a PHI segment and update the transcript UI with the original text."""
-        try:
-            # The user can edit the text in the review window.
-            # We'll use the text from the textbox as the source of truth.
-            approved_text = self.phi_edit_textbox.get("1.0", "end-1c").strip()
-
-            # Get the turn_id from the original turn data
-            turn_data = review_data.get('turn_data', {})
-            turn_id = turn_data.get('id')
-
-            if not turn_id:
-                print("ERROR: Cannot approve PHI segment, missing turn_id.")
-                self.close_phi_review_window()
-                return
-
-            # Call the UI action to update the turn with the approved text
-            if self.transcript_panel_actions.update_turn:
-                self.transcript_panel_actions.update_turn(turn_id, approved_text)
-                print(f"PHI segment {turn_id} approved and updated in transcript.")
-            else:
-                print(f"ERROR: update_turn action is not available.")
-
-            # Clean up
-            self.remove_from_phi_queue(review_data)
-            self.close_phi_review_window()
-
-        except Exception as e:
-            print(f"PHI approval error: {e}")
-            self.close_phi_review_window()
-
-    def skip_phi_segment(self, segment_data):
-        """Skip PHI segment (don't add to transcript)"""
-        try:
-            print(f"PHI segment skipped - not added to transcript")
-
-            # Remove from PHI queue
-            self.remove_from_phi_queue(segment_data)
-
-            # Close review window
-            self.close_phi_review_window()
-
-        except Exception as e:
-            print(f"PHI skip error: {e}")
-            self.close_phi_review_window()
-
-    def update_phi_timeout(self):
-        """Update PHI review timeout"""
-        try:
-            if not self.current_phi_segment or not self.phi_review_window:
-                return
-
-            elapsed = time.time() - self.phi_timeout_start
-            remaining = max(0, self.phi_timeout_seconds - elapsed)
-
-            if remaining <= 0:
-                # Timeout reached
-                if self.auto_approve_enabled:
-                    print("PHI review timeout - auto-approving segment")
-                    self.approve_phi_segment(self.current_phi_segment)
-                else:
-                    print("PHI review timeout - skipping segment")
-                    self.skip_phi_segment(self.current_phi_segment)
-            else:
-                # Update timeout display
-                if self.phi_review_window and self.phi_review_window.winfo_exists():
-                    self.phi_review_window.title(f"PHI Review Required - Timeout: {remaining:.0f}s")
-
-                # Schedule next update
-                self.phi_timeout_id = self.root.after(1000, self.update_phi_timeout)
-
-        except Exception as e:
-            print(f"PHI timeout error: {e}")
-
-    def close_phi_review_window(self):
-        """Close PHI review window and cleanup"""
-        try:
-            if hasattr(self, 'phi_timeout_id') and self.phi_timeout_id:
-                self.root.after_cancel(self.phi_timeout_id)
-                self.phi_timeout_id = None
-
-            if self.phi_review_window and self.phi_review_window.winfo_exists():
-                self.phi_review_window.destroy()
-
-            self.phi_review_window = None
-            self.current_phi_segment = None
-
-        except Exception as e:
-            print(f"PHI window cleanup error: {e}")
-
-    # ===================================================================
     # TRANSCRIPT EXPORT AND LAYOUT MANAGEMENT
     # ===================================================================
 
@@ -9707,13 +8898,10 @@ Generated by Amanuensis V2
             total_analyses = len(self.session_context)
             risk_events = len([r for r in self.risk_alerts if r.get('alert_level') in ['MEDIUM', 'HIGH']])
 
-            # Get PHI queue size (use qsize() for Queue objects)
-            phi_count = self.phi_review_queue.qsize() if hasattr(self, 'phi_review_queue') else 0
             summary = f"""ANALYSIS SUMMARY:
 - Total Analyses: {total_analyses}
 - Risk Events: {risk_events}
 - Current Risk Level: {self.dashboard_state.get('risk_level', 'UNKNOWN')}
-- PHI Segments Reviewed: {phi_count}
 """
             return summary
 
@@ -9861,7 +9049,7 @@ Generated by Amanuensis V2
             handle = ctk.CTkFrame(
                 self.main_panel_container,
                 width=3,
-                fg_color=self.colors['bg_accent'],
+                fg_color=bg_accent_tuple,
                 corner_radius=1
             )
 
@@ -9872,8 +9060,8 @@ Generated by Amanuensis V2
             handle.pack(side="left", fill="y", padx=1)
 
             # Add visual feedback
-            handle.bind("<Enter>", lambda e: handle.configure(fg_color=self.colors['primary']))
-            handle.bind("<Leave>", lambda e: handle.configure(fg_color=self.colors['bg_accent']))
+            handle.bind("<Enter>", lambda e: handle.configure(fg_color=self.colors.get('primary', '#1e40af')))
+            handle.bind("<Leave>", lambda e: handle.configure(fg_color=bg_accent_tuple))
             handle.bind("<Double-Button-1>", lambda e: self.reset_to_optimal_proportions())
 
             print(f"Created resize handle: {handle_type}")
