@@ -6,11 +6,8 @@ torch>=2.0.0
 numpy>=1.24.0
 psutil>=5.9.0
 nvidia-ml-py>=13.0.0
-# Google Gemini API - use NEW unified SDK (recommended)
-# google-genai>=0.1.0
-
-# OR use deprecated SDK (backward compatible, will be removed)
-google-generativeai>=0.3.0
+# Google Gemini API - unified SDK
+google-genai>=0.1.0
 aiohttp>=3.8.0
 asyncio-throttle>=1.0.2
 # Pyannote.audio dependencies for advanced speaker diarization

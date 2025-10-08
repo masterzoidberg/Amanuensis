@@ -12,6 +12,7 @@ import threading
 import queue
 import time
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -42,21 +43,18 @@ GEMINI_SDK_VERSION = None
 GEMINI_AVAILABLE = False
 
 try:
-    # Try new unified SDK first (recommended)
+    # Unified Google Gen AI SDK (required)
     from google import genai
-    GEMINI_SDK_VERSION = 'unified'
+    from google.genai import types
+    from google.genai.errors import APIError
     GEMINI_AVAILABLE = True
-    print("[OK] Using NEW unified Google Gen AI SDK")
+    print("[OK] Using unified Google Gen AI SDK")
 except ImportError:
-    try:
-        # Fall back to deprecated SDK
-        import google.generativeai as genai
-        GEMINI_SDK_VERSION = 'deprecated'
-        GEMINI_AVAILABLE = True
-        print("[WARN] Using DEPRECATED google-generativeai SDK - please upgrade to google-genai")
-    except ImportError:
-        GEMINI_AVAILABLE = False
-        print("[ERROR] Gemini API not available. Install google-genai or google-generativeai package.")
+    GEMINI_AVAILABLE = False
+    genai = None
+    types = None
+    APIError = None
+    print("[ERROR] Gemini API not available. Install: pip install google-genai")
 
 # Keep for backwards compatibility
 ANTHROPIC_AVAILABLE = GEMINI_AVAILABLE
@@ -1289,15 +1287,12 @@ class AmanuensisApp:
             def run_insight_generation():
                 try:
                     prompt = f"{text}\n\nContext - Last {window_minutes} min of transcript:\n{transcript_text}"
-                    
-                    if GEMINI_SDK_VERSION == 'unified' and hasattr(self, 'gemini_client'):
+
+                    if hasattr(self, 'gemini_client') and self.gemini_client:
                         response = self.gemini_client.models.generate_content(
-                            model='gemini-2.0-flash-exp',
+                            model=self.gemini_model,
                             contents=prompt
                         )
-                        insight_text = response.text
-                    elif GEMINI_SDK_VERSION == 'deprecated' and self.gemini_model:
-                        response = self.gemini_model.generate_content(prompt)
                         insight_text = response.text
                     else:
                         insight_text = "Gemini API not configured"
@@ -3078,23 +3073,83 @@ class AmanuensisApp:
         )
         self.insight_window_label.pack(side="right")
 
+        # Template selector
+        ctk.CTkLabel(
+            controls_frame,
+            text="Analysis Template:",
+            font=ctk.CTkFont(size=10),
+            text_color=self.colors.get('text_primary', '#ffffff')
+        ).pack(anchor="w", padx=10, pady=(10, 2))
+
+        # Load available templates for dropdown
+        self.load_templates_for_analysis()
+        
+        template_frame = ctk.CTkFrame(controls_frame, fg_color="transparent")
+        template_frame.pack(fill="x", padx=10, pady=(0, 10))
+        
+        self.selected_template_var = ctk.StringVar(value="cbt_realtime")
+        self.template_dropdown = ctk.CTkOptionMenu(
+            template_frame,
+            variable=self.selected_template_var,
+            values=self.get_template_dropdown_options(),
+            command=self.on_template_selection_changed,
+            font=ctk.CTkFont(size=10),
+            fg_color=self.colors.get('input_background', '#1a1a1a'),
+            button_color=self.colors.get('primary', '#2B5AA0'),
+            button_hover_color=self.colors.get('accent', '#1E3A6B')
+        )
+        self.template_dropdown.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        
+        # Template info button
+        self.template_info_btn = ctk.CTkButton(
+            template_frame,
+            text="ℹ️",
+            width=30,
+            height=28,
+            font=ctk.CTkFont(size=12),
+            command=self.show_template_info,
+            fg_color=self.colors.get('bg_accent', '#404040'),
+            hover_color=self.colors.get('primary', '#2B5AA0')
+        )
+        self.template_info_btn.pack(side="right")
+
         # Load prompts
         if not hasattr(self, 'insight_prompts'):
             self.insight_prompts = self.load_insight_prompts()
 
-        # Generate buttons
+        # Template-based analysis button
+        self.template_analysis_btn = ctk.CTkButton(
+            controls_frame,
+            text="🔍 Generate Analysis",
+            command=self.generate_template_analysis,
+            height=35,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=self.colors.get('success', '#047857'),
+            hover_color=self.colors.get('success_hover', '#059669')
+        )
+        self.template_analysis_btn.pack(fill="x", padx=10, pady=(10, 5))
+        
+        # Quick analysis buttons (legacy)
+        quick_label = ctk.CTkLabel(
+            controls_frame,
+            text="Quick Analysis:",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color=self.colors.get('text_secondary', '#888888')
+        )
+        quick_label.pack(anchor="w", padx=10, pady=(10, 2))
+        
         self.insight_buttons = {}
         for prompt_id, prompt_data in self.insight_prompts.items():
             btn = ctk.CTkButton(
                 controls_frame,
                 text=prompt_data['label'],
                 command=lambda pid=prompt_id: self.generate_insight_on_demand(pid),
-                height=28,
-                font=ctk.CTkFont(size=10),
-                fg_color=self.colors.get('button_primary', '#2B5AA0'),
+                height=26,
+                font=ctk.CTkFont(size=9),
+                fg_color=self.colors.get('bg_accent', '#404040'),
                 hover_color=self.colors.get('button_primary_hover', '#1E3A6B')
             )
-            btn.pack(fill="x", padx=10, pady=2)
+            btn.pack(fill="x", padx=10, pady=1)
             self.insight_buttons[prompt_id] = btn
 
     def create_insight_chat_input(self):
@@ -3138,6 +3193,175 @@ class AmanuensisApp:
             hover_color=self.colors.get('accent', '#1E3A6B')
         ).pack(side="right")
 
+    def generate_template_analysis(self):
+        """Generate analysis using the selected template with variable substitution"""
+        try:
+            # Check if template is selected
+            if not hasattr(self, 'selected_template_id') or not self.selected_template_id:
+                ctk.messagebox.showwarning("No Template", "Please select an analysis template first.")
+                return
+            
+            # Get selected template
+            template = self.analysis_templates.get(self.selected_template_id)
+            if not template:
+                ctk.messagebox.showerror("Template Error", "Selected template not found.")
+                return
+            
+            # Get time window and transcript
+            window_minutes = self.insight_window_var.get()
+            window_seconds = window_minutes * 60
+            transcript_text = self.get_recent_transcript(window_seconds)
+            
+            if not transcript_text or len(transcript_text.strip()) < 50:
+                self.show_toast(f"Not enough transcript in last {window_minutes} min", 2000)
+                return
+            
+            # Show progress
+            self.template_analysis_btn.configure(text="⏳ Analyzing...", state="disabled")
+            
+            # Run analysis in background thread
+            def run_template_analysis():
+                try:
+                    # Prepare template variables
+                    template_variables = self.prepare_template_variables(transcript_text, window_minutes)
+                    
+                    # Substitute variables in template
+                    analysis_prompt = self.substitute_template_variables(template['prompt'], template_variables)
+                    
+                    print(f"[ANALYSIS] Using template: {template['name']}")
+                    print(f"[ANALYSIS] Variables substituted: {list(template_variables.keys())}")
+                    
+                    # Generate analysis using Gemini
+                    if hasattr(self, 'gemini_client') and self.gemini_client:
+                        response = self.gemini_client.models.generate_content(
+                            model=self.gemini_model,
+                            contents=analysis_prompt
+                        )
+                        insight_text = response.text
+                    else:
+                        insight_text = "Analysis generation not available - Gemini client not configured"
+                    
+                    # Create insight card with template metadata
+                    card = {
+                        'title': f"{template['name']} - {window_minutes}min Analysis",
+                        'body': insight_text,
+                        'tags': [f"Template: {template['name']}", f"{window_minutes}min window", template['category']],
+                        'ts': datetime.now(),
+                        'template_id': self.selected_template_id,
+                        'variables_used': list(template_variables.keys())
+                    }
+                    
+                    # Add to insights panel (thread-safe)
+                    self.root.after(0, lambda: self.add_template_analysis_card(card))
+                    
+                except Exception as e:
+                    error_msg = f"Template analysis error: {str(e)}"
+                    print(f"[ERROR] {error_msg}")
+                    
+                    # Show error card
+                    error_card = {
+                        'title': 'Analysis Error',
+                        'body': f"Failed to generate analysis using template '{template['name']}':\n\n{str(e)}",
+                        'tags': ['Error', 'Template Analysis'],
+                        'ts': datetime.now()
+                    }
+                    self.root.after(0, lambda: self.add_template_analysis_card(error_card))
+                
+                finally:
+                    # Re-enable button
+                    self.root.after(0, lambda: self.template_analysis_btn.configure(
+                        text="🔍 Generate Analysis", state="normal"))
+            
+            # Start analysis thread
+            analysis_thread = threading.Thread(target=run_template_analysis, daemon=True)
+            analysis_thread.start()
+            
+        except Exception as e:
+            print(f"Error starting template analysis: {e}")
+            ctk.messagebox.showerror("Analysis Error", f"Failed to start analysis: {str(e)}")
+            self.template_analysis_btn.configure(text="🔍 Generate Analysis", state="normal")
+    
+    def prepare_template_variables(self, transcript_text, window_minutes):
+        """Prepare variables for template substitution"""
+        try:
+            # Get session context and metadata
+            session_duration = self.get_session_duration_minutes()
+            analysis_history = self.get_analysis_history_summary()
+            session_context = self.get_session_context_summary()
+            
+            # Determine current risk level
+            risk_level = getattr(self, 'current_risk_level', 'LOW')
+            if hasattr(self, 'risk_alerts') and self.risk_alerts:
+                recent_alerts = [a for a in self.risk_alerts if time.time() - a.get('timestamp', 0) < 1800]  # 30 min
+                if recent_alerts:
+                    risk_level = 'MEDIUM' if len(recent_alerts) < 3 else 'HIGH'
+            
+            # Prepare variable dictionary
+            variables = {
+                'transcript_segment': transcript_text,
+                'session_context': session_context,
+                'session_duration': str(session_duration),
+                'therapy_modality': getattr(self, 'therapy_modality', 'General'),
+                'analysis_history': analysis_history,
+                'risk_level': risk_level,
+                'window_minutes': str(window_minutes),
+                'current_time': datetime.now().strftime('%H:%M:%S'),
+                'session_date': datetime.now().strftime('%Y-%m-%d')
+            }
+            
+            print(f"[VARIABLES] Prepared {len(variables)} template variables")
+            return variables
+            
+        except Exception as e:
+            print(f"Error preparing template variables: {e}")
+            return {
+                'transcript_segment': transcript_text,
+                'session_context': 'Context unavailable',
+                'session_duration': str(window_minutes),
+                'therapy_modality': 'General',
+                'analysis_history': 'History unavailable',
+                'risk_level': 'UNKNOWN'
+            }
+    
+    def substitute_template_variables(self, template_prompt, variables):
+        """Substitute variables in template prompt"""
+        try:
+            substituted_prompt = template_prompt
+            
+            # Replace each variable
+            for var_name, var_value in variables.items():
+                placeholder = f"{{{var_name}}}"
+                if placeholder in substituted_prompt:
+                    substituted_prompt = substituted_prompt.replace(placeholder, str(var_value))
+                    print(f"[SUBSTITUTE] {var_name} -> {len(str(var_value))} chars")
+            
+            # Check for unsubstituted variables
+            remaining_vars = re.findall(r'\{([^}]+)\}', substituted_prompt)
+            if remaining_vars:
+                print(f"[WARNING] Unsubstituted variables: {remaining_vars}")
+                # Replace with placeholder text
+                for var in remaining_vars:
+                    placeholder = f"{{{var}}}"
+                    substituted_prompt = substituted_prompt.replace(placeholder, f"[{var} not available]")
+            
+            return substituted_prompt
+            
+        except Exception as e:
+            print(f"Error substituting template variables: {e}")
+            return template_prompt
+    
+    def add_template_analysis_card(self, card_data):
+        """Add template analysis result as insight card"""
+        try:
+            if hasattr(self, 'insights_actions') and self.insights_actions.add_insight_card:
+                self.insights_actions.add_insight_card(card_data)
+                print(f"[SUCCESS] Added template analysis card: {card_data['title']}")
+            else:
+                print("[ERROR] insights_actions.add_insight_card not available")
+                
+        except Exception as e:
+            print(f"Error adding template analysis card: {e}")
+    
     def send_chat_insight(self):
         """Send custom insight query from chat input"""
         query = self.insight_chat_entry.get().strip()
@@ -3161,15 +3385,14 @@ class AmanuensisApp:
                 try:
                     prompt = f"{query}\n\nContext - Last {window_minutes} min of transcript:\n{transcript_text}"
 
-                    if GEMINI_SDK_VERSION == 'unified' and hasattr(self, 'gemini_client'):
+                    if hasattr(self, 'gemini_client') and self.gemini_client:
                         response = self.gemini_client.models.generate_content(
                             model=self.gemini_model,
                             contents=prompt
                         )
+                        insight_text = response.text
                     else:
-                        response = self.gemini_model.generate_content(prompt)
-
-                    insight_text = response.text
+                        insight_text = "Gemini API not configured"
                     timestamp = time.strftime("%H:%M:%S")
 
                     # Create card with query as title
@@ -3933,8 +4156,9 @@ class AmanuensisApp:
             self.create_audio_settings_tab()
             self.create_export_settings_tab()
 
-            # Configure tab backgrounds AFTER all tabs are populated
-            self.settings_window.after(10, lambda: self._configure_settings_tabs(BG2))
+            # Configure tab backgrounds immediately (no flicker)
+            self.settings_window.update_idletasks()
+            self._configure_settings_tabs(BG2)
 
             # Button bar
             button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
@@ -4486,6 +4710,46 @@ class AmanuensisApp:
         # Bind text change event for token counting
         self.prompt_editor.bind("<KeyRelease>", self.update_token_count)
 
+        # Action buttons frame
+        action_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
+        action_frame.pack(fill="x", padx=10, pady=(5, 10))
+
+        # Save Template button
+        save_btn = ctk.CTkButton(
+            action_frame,
+            text="💾 Save Template",
+            command=self.save_template,
+            height=35,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=self.colors.get('primary', '#1e40af'),
+            hover_color=self.colors.get('accent', '#6d28d9')
+        )
+        save_btn.pack(side="left", padx=(0, 10))
+
+        # Test Template button
+        test_btn = ctk.CTkButton(
+            action_frame,
+            text="🧪 Test Template",
+            command=self.test_template_with_live_data,
+            height=35,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=self.colors.get('warning', '#b45309'),
+            hover_color=self.colors.get('warning_hover', '#d97706')
+        )
+        test_btn.pack(side="left", padx=(0, 10))
+
+        # Use Template button (Phase 3 enhancement)
+        use_btn = ctk.CTkButton(
+            action_frame,
+            text="🚀 Use Template Now",
+            command=self.use_template_immediately,
+            height=35,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=self.colors.get('success', '#047857'),
+            hover_color=self.colors.get('success_hover', '#059669')
+        )
+        use_btn.pack(side="right")
+
         # Load templates on initialization
         self.load_templates()
 
@@ -4968,7 +5232,10 @@ class AmanuensisApp:
                     'dual_channel': self.dual_channel_settings_var.get() if hasattr(self, 'dual_channel_settings_var') else False,
                     'enable_diarization': self.enable_diarization_var.get() if hasattr(self, 'enable_diarization_var') else False,
                     'huggingface_token': self.hf_token_entry.get() if hasattr(self, 'hf_token_entry') else '',
-                    'max_speakers': self.max_speakers_var.get() if hasattr(self, 'max_speakers_var') else 2
+                    'max_speakers': self.max_speakers_var.get() if hasattr(self, 'max_speakers_var') else 2,
+                    'blocksize': getattr(self, 'audio_blocksize', 8192),
+                    'max_discontinuities': getattr(self, 'max_discontinuities', 10),
+                    'discontinuity_warning_throttle': getattr(self, 'discontinuity_warning_throttle', 5)
                 },
                 'export': {
                     'formats': {fmt: var.get() for fmt, var in self.export_formats_vars.items()} if hasattr(self, 'export_formats_vars') else {'txt': True, 'docx': True},
@@ -5054,10 +5321,13 @@ class AmanuensisApp:
                         # SoundCard buffer settings for discontinuity handling
                         if 'blocksize' in audio and isinstance(audio['blocksize'], int):
                             self.audio_blocksize = max(1024, min(16384, audio['blocksize']))
+                            print(f"[Config] Loaded audio blocksize: {self.audio_blocksize}")
                         if 'max_discontinuities' in audio and isinstance(audio['max_discontinuities'], int):
                             self.max_discontinuities = max(5, audio['max_discontinuities'])
+                            print(f"[Config] Loaded max_discontinuities: {self.max_discontinuities}")
                         if 'discontinuity_warning_throttle' in audio and isinstance(audio['discontinuity_warning_throttle'], int):
                             self.discontinuity_warning_throttle = max(1, audio['discontinuity_warning_throttle'])
+                            print(f"[Config] Loaded discontinuity_warning_throttle: {self.discontinuity_warning_throttle}")
 
                     # Stitching settings - Fix #1-5 configuration
                     if 'stitch' in config and isinstance(config['stitch'], dict):
@@ -5547,13 +5817,43 @@ Provide structured analysis in 200-300 words."""
                     self.template_description.delete(0, "end")
                     self.prompt_editor.delete("1.0", "end")
 
-                    # Refresh list
+                    # Refresh list and analysis dropdown
                     self.refresh_template_list()
+                    self.refresh_analysis_template_dropdown()
+
+                    # Save to file
+                    self.save_templates_to_file()
 
                     print(f"Deleted template: {template_name}")
 
         except Exception as e:
             print(f"Error deleting template: {e}")
+    
+    def refresh_analysis_template_dropdown(self):
+        """Refresh the analysis template dropdown with updated templates"""
+        try:
+            if hasattr(self, 'template_dropdown'):
+                # Reload templates for analysis
+                self.load_templates_for_analysis()
+                
+                # Update dropdown options
+                new_options = self.get_template_dropdown_options()
+                self.template_dropdown.configure(values=new_options)
+                
+                # Ensure current selection is still valid
+                if hasattr(self, 'selected_template_id'):
+                    if self.selected_template_id not in self.analysis_templates:
+                        # Reset to first available template
+                        if new_options and new_options[0] != "No templates available":
+                            self.selected_template_var.set(new_options[0])
+                            self.on_template_selection_changed(new_options[0])
+                        else:
+                            self.selected_template_id = None
+                
+                print(f"[UI] Analysis template dropdown refreshed with {len(new_options)} options")
+                
+        except Exception as e:
+            print(f"Error refreshing analysis template dropdown: {e}")
 
     def filter_templates(self, category=None):
         """Filter templates by category"""
@@ -5615,23 +5915,28 @@ Provide structured analysis in 200-300 words."""
             print(f"Error updating token count: {e}")
 
     def save_template(self):
-        """Save the current template"""
+        """Save the current template with comprehensive validation and atomic operations"""
         try:
-            # Validate required fields
-            name = self.template_name_entry.get().strip()
-            if not name:
-                ctk.messagebox.showerror("Missing Name", "Please enter a template name.")
+            # Show progress indicator
+            progress_window = self.show_save_progress("Validating template...")
+            
+            # Comprehensive validation
+            validation_result = self.validate_template_data()
+            if not validation_result['valid']:
+                progress_window.destroy()
+                ctk.messagebox.showerror("Validation Error", validation_result['error'])
                 return
+            
+            # Extract validated data
+            name = validation_result['data']['name']
+            description = validation_result['data']['description']
+            category = validation_result['data']['category']
+            prompt_text = validation_result['data']['prompt_text']
+            
+            progress_window.destroy()
+            progress_window = self.show_save_progress("Saving template...")
 
-            description = self.template_description.get().strip()
-            category = self.template_category.get()
-            prompt_text = self.prompt_editor.get("1.0", "end-1c").strip()
-
-            if not prompt_text:
-                ctk.messagebox.showerror("Missing Prompt", "Please enter a prompt template.")
-                return
-
-            # Create template data
+            # Create comprehensive template data
             template_data = {
                 'name': name,
                 'description': description,
@@ -5641,37 +5946,153 @@ Provide structured analysis in 200-300 words."""
                 'max_tokens': 500,  # Default
                 'created_by': 'user',
                 'created_date': str(datetime.now().date()),
-                'version': '1.0'
+                'last_modified': str(datetime.now().isoformat()),
+                'version': '1.0',
+                'word_count': len(prompt_text.split()),
+                'char_count': len(prompt_text)
             }
 
-            # Generate template ID
-            if self.current_template:
+            # Generate or use existing template ID
+            if self.current_template and self.current_template in self.prompt_templates:
                 template_id = self.current_template
+                template_data['version'] = self.increment_version(self.prompt_templates[template_id].get('version', '1.0'))
+                print(f"[TEMPLATE] Updating existing template: {template_id}")
             else:
-                template_id = f"user_{name.lower().replace(' ', '_')}_{int(time.time())}"
+                template_id = self.generate_unique_template_id(name)
+                print(f"[TEMPLATE] Creating new template: {template_id}")
 
-            # Save template
-            self.prompt_templates[template_id] = template_data
-            self.current_template = template_id
-            self.templates_modified = True
-
-            # Save to file
-            self.save_templates_to_file()
-
-            # Refresh list
-            self.refresh_template_list()
-
-            ctk.messagebox.showinfo("Template Saved", f"Template '{name}' saved successfully!")
+            # Atomic save operation with backup
+            save_result = self.atomic_template_save(template_id, template_data)
+            progress_window.destroy()
+            
+            if save_result['success']:
+                self.current_template = template_id
+                self.templates_modified = True
+                
+                # Refresh UI
+                self.refresh_template_list()
+                
+                # Show detailed success message
+                success_msg = f"✅ Template '{name}' saved successfully!\n\n"
+                success_msg += f"📝 Template ID: {template_id}\n"
+                success_msg += f"📊 Variables: {len(template_data['variables'])}\n"
+                success_msg += f"📏 Length: {template_data['word_count']} words\n"
+                success_msg += f"🏷️ Category: {category}"
+                
+                ctk.messagebox.showinfo("Template Saved", success_msg)
+                print(f"[SUCCESS] Template '{name}' saved with {len(template_data['variables'])} variables")
+            else:
+                ctk.messagebox.showerror("Save Failed", f"Failed to save template: {save_result['error']}")
+                print(f"[ERROR] Template save failed: {save_result['error']}")
 
         except Exception as e:
-            print(f"Error saving template: {e}")
-            ctk.messagebox.showerror("Save Error", f"Failed to save template: {str(e)}")
+            # Ensure progress window is closed
+            if 'progress_window' in locals() and progress_window.winfo_exists():
+                progress_window.destroy()
+            
+            error_msg = f"Template save error: {str(e)}"
+            print(f"[ERROR] {error_msg}")
+            
+            # Show detailed error with troubleshooting
+            detailed_error = f"❌ Failed to save template\n\n"
+            detailed_error += f"Error: {str(e)}\n\n"
+            detailed_error += "💡 Troubleshooting:\n"
+            detailed_error += "• Check if template name is unique\n"
+            detailed_error += "• Ensure prompt contains valid variables\n"
+            detailed_error += "• Verify file permissions in app directory\n"
+            detailed_error += "• Try closing and reopening settings"
+            
+            ctk.messagebox.showerror("Save Error", detailed_error)
 
+    def validate_template_data(self):
+        """Comprehensive template validation with detailed error reporting"""
+        try:
+            # Get form data
+            name = self.template_name_entry.get().strip()
+            description = self.template_description.get().strip()
+            category = self.template_category.get()
+            prompt_text = self.prompt_editor.get("1.0", "end-1c").strip()
+            
+            # Validation rules
+            errors = []
+            
+            # Name validation
+            if not name:
+                errors.append("Template name is required")
+            elif len(name) < 3:
+                errors.append("Template name must be at least 3 characters")
+            elif len(name) > 100:
+                errors.append("Template name must be less than 100 characters")
+            elif not re.match(r'^[a-zA-Z0-9\s\-_]+$', name):
+                errors.append("Template name contains invalid characters (use letters, numbers, spaces, hyphens, underscores only)")
+            
+            # Check for duplicate names (excluding current template)
+            existing_names = [t.get('name', '').lower() for tid, t in self.prompt_templates.items() 
+                            if tid != self.current_template]
+            if name.lower() in existing_names:
+                errors.append(f"Template name '{name}' already exists. Please choose a different name.")
+            
+            # Prompt validation
+            if not prompt_text:
+                errors.append("Prompt template text is required")
+            elif len(prompt_text) < 10:
+                errors.append("Prompt template must be at least 10 characters")
+            elif len(prompt_text) > 10000:
+                errors.append("Prompt template is too long (max 10,000 characters)")
+            
+            # Variable validation
+            variables = self.extract_variables(prompt_text)
+            if len(variables) == 0:
+                errors.append("Prompt template should contain at least one variable (e.g., {transcript_segment})")
+            
+            # Check for malformed variables
+            malformed_vars = re.findall(r'\{[^}]*$|^[^{]*\}', prompt_text)
+            if malformed_vars:
+                errors.append("Prompt contains malformed variables (unmatched braces)")
+            
+            # Category validation
+            valid_categories = ['real-time', 'risk-assessment', 'session-summary', 'progress-tracking', 'custom']
+            if category not in valid_categories:
+                errors.append(f"Invalid category '{category}'. Must be one of: {', '.join(valid_categories)}")
+            
+            # Return validation result
+            if errors:
+                return {
+                    'valid': False,
+                    'error': '\n'.join([f"• {error}" for error in errors])
+                }
+            else:
+                return {
+                    'valid': True,
+                    'data': {
+                        'name': name,
+                        'description': description,
+                        'category': category,
+                        'prompt_text': prompt_text
+                    }
+                }
+                
+        except Exception as e:
+            return {
+                'valid': False,
+                'error': f"Validation error: {str(e)}"
+            }
+    
     def extract_variables(self, prompt_text):
-        """Extract variable names from prompt text"""
+        """Extract variable names from prompt text with validation"""
         import re
-        variables = re.findall(r'\{([^}]+)\}', prompt_text)
-        return list(set(variables))
+        try:
+            variables = re.findall(r'\{([^}]+)\}', prompt_text)
+            # Filter out empty or invalid variable names
+            valid_variables = []
+            for var in variables:
+                var = var.strip()
+                if var and re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', var):
+                    valid_variables.append(var)
+            return list(set(valid_variables))
+        except Exception as e:
+            print(f"Error extracting variables: {e}")
+            return []
 
     def test_template(self):
         """Test the current template with sample data"""
@@ -5760,43 +6181,208 @@ Provide structured analysis in 200-300 words."""
         except Exception as e:
             print(f"Error showing test result: {e}")
 
-    def save_templates_to_file(self):
-        """Save templates to JSON file"""
+    def atomic_template_save(self, template_id, template_data):
+        """Atomic template save operation with backup and rollback"""
         try:
             import json
             from pathlib import Path
-
-            # Load existing file to preserve structure
+            import shutil
+            
             templates_file = Path("prompts_library.json")
+            backup_file = Path("prompts_library.backup.json")
+            temp_file = Path("prompts_library.temp.json")
+            
+            # Create backup of existing file
+            if templates_file.exists():
+                shutil.copy2(templates_file, backup_file)
+                print(f"[BACKUP] Created backup: {backup_file}")
+            
+            # Load existing data or create new structure
             if templates_file.exists():
                 with open(templates_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
             else:
-                data = {}
-
+                data = self.create_default_template_structure()
+            
+            # Update template in memory first
+            old_template = self.prompt_templates.get(template_id)
+            self.prompt_templates[template_id] = template_data
+            
             # Separate user and default templates
             user_templates = {}
             default_templates = {}
-
-            for template_id, template in self.prompt_templates.items():
+            
+            for tid, template in self.prompt_templates.items():
                 if template.get('created_by') == 'user':
-                    user_templates[template_id] = template
+                    user_templates[tid] = template
                 else:
-                    default_templates[template_id] = template
-
-            # Update data structure
+                    default_templates[tid] = template
+            
+            # Update data structure with metadata
             data['user_templates'] = user_templates
             data['default_templates'] = default_templates
-
-            # Save to file
-            with open(templates_file, 'w', encoding='utf-8') as f:
+            data['metadata'] = {
+                'last_updated': datetime.now().isoformat(),
+                'total_templates': len(user_templates) + len(default_templates),
+                'user_template_count': len(user_templates),
+                'app_version': '2.0'
+            }
+            
+            # Write to temporary file first (atomic operation)
+            with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-
-            print(f"Saved {len(user_templates)} user templates")
-
+            
+            # Verify the temporary file is valid JSON
+            with open(temp_file, 'r', encoding='utf-8') as f:
+                json.load(f)  # This will raise an exception if invalid
+            
+            # Atomic move (rename) - this is the critical atomic operation
+            if temp_file.exists():
+                if templates_file.exists():
+                    templates_file.unlink()  # Remove old file
+                temp_file.rename(templates_file)  # Atomic rename
+            
+            print(f"[SUCCESS] Atomically saved {len(user_templates)} user templates")
+            
+            return {
+                'success': True,
+                'template_count': len(user_templates),
+                'backup_created': backup_file.exists()
+            }
+            
+        except Exception as e:
+            # Rollback on error
+            try:
+                # Restore from backup if it exists
+                if backup_file.exists() and templates_file.exists():
+                    shutil.copy2(backup_file, templates_file)
+                    print(f"[ROLLBACK] Restored from backup due to error")
+                
+                # Restore template in memory
+                if old_template is not None:
+                    self.prompt_templates[template_id] = old_template
+                elif template_id in self.prompt_templates:
+                    del self.prompt_templates[template_id]
+                
+                # Clean up temp file
+                if temp_file.exists():
+                    temp_file.unlink()
+                    
+            except Exception as rollback_error:
+                print(f"[ERROR] Rollback failed: {rollback_error}")
+            
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def save_templates_to_file(self):
+        """Legacy method - redirects to atomic save for compatibility"""
+        try:
+            # This method is kept for backward compatibility
+            # but now uses the atomic save system
+            result = self.atomic_template_save(None, None)
+            if not result['success']:
+                raise Exception(result['error'])
+                
         except Exception as e:
             print(f"Error saving templates to file: {e}")
+            raise
 
+    def generate_unique_template_id(self, name):
+        """Generate a unique template ID based on name"""
+        import time
+        base_id = f"user_{name.lower().replace(' ', '_').replace('-', '_')}"
+        # Remove any non-alphanumeric characters except underscores
+        base_id = re.sub(r'[^a-zA-Z0-9_]', '', base_id)
+        
+        # Ensure it doesn't conflict with existing IDs
+        template_id = base_id
+        counter = 1
+        while template_id in self.prompt_templates:
+            template_id = f"{base_id}_{counter}"
+            counter += 1
+        
+        # Add timestamp for uniqueness
+        template_id += f"_{int(time.time())}"
+        return template_id
+    
+    def increment_version(self, current_version):
+        """Increment template version number"""
+        try:
+            parts = current_version.split('.')
+            if len(parts) >= 2:
+                major, minor = int(parts[0]), int(parts[1])
+                return f"{major}.{minor + 1}"
+            else:
+                return "1.1"
+        except:
+            return "1.1"
+    
+    def create_default_template_structure(self):
+        """Create default template file structure"""
+        return {
+            'default_templates': {},
+            'user_templates': {},
+            'template_categories': [
+                {'id': 'real-time', 'name': 'Real-time Analysis', 'description': 'Live analysis during therapy sessions'},
+                {'id': 'risk-assessment', 'name': 'Risk Assessment', 'description': 'Specialized prompts for safety concerns'},
+                {'id': 'session-summary', 'name': 'Session Summary', 'description': 'End-of-session summaries and SOAP notes'},
+                {'id': 'progress-tracking', 'name': 'Progress Tracking', 'description': 'Longitudinal analysis for client development'},
+                {'id': 'custom', 'name': 'Custom', 'description': 'User-created templates for specialized needs'}
+            ],
+            'available_variables': {
+                'transcript_segment': {'name': 'Transcript Segment', 'description': 'Current transcript segment'},
+                'session_context': {'name': 'Session Context', 'description': 'Summary of previous analyses'},
+                'session_duration': {'name': 'Session Duration', 'description': 'Session length in minutes'},
+                'therapy_modality': {'name': 'Therapy Modality', 'description': 'Selected therapeutic approach'},
+                'analysis_history': {'name': 'Analysis History', 'description': 'Previous insights from session'},
+                'risk_level': {'name': 'Risk Level', 'description': 'Current risk assessment (1-10 scale)'}
+            },
+            'settings': {
+                'version': '2.0',
+                'last_updated': datetime.now().isoformat(),
+                'backup_enabled': True,
+                'max_custom_templates': 100,
+                'default_category': 'real-time'
+            }
+        }
+    
+    def show_save_progress(self, message):
+        """Show progress window during save operations"""
+        try:
+            progress_window = ctk.CTkToplevel(self.settings_window)
+            progress_window.title("Saving Template")
+            progress_window.geometry("300x120")
+            progress_window.transient(self.settings_window)
+            progress_window.grab_set()
+            
+            # Center the window
+            progress_window.update_idletasks()
+            x = (progress_window.winfo_screenwidth() // 2) - (300 // 2)
+            y = (progress_window.winfo_screenheight() // 2) - (120 // 2)
+            progress_window.geometry(f"300x120+{x}+{y}")
+            
+            # Progress content
+            ctk.CTkLabel(
+                progress_window,
+                text="💾 Saving Template",
+                font=ctk.CTkFont(size=16, weight="bold")
+            ).pack(pady=(20, 10))
+            
+            ctk.CTkLabel(
+                progress_window,
+                text=message,
+                font=ctk.CTkFont(size=12)
+            ).pack(pady=(0, 20))
+            
+            progress_window.update()
+            return progress_window
+            
+        except Exception as e:
+            print(f"Error creating progress window: {e}")
+            return None
+    
     # =================================
     # TEMPLATE DATA HELPER METHODS
     # =================================
@@ -6283,6 +6869,200 @@ Provide structured analysis in 200-300 words."""
         print(f"Using {overlap_seconds}s overlap for {self.diarization_buffer_size}s buffer")
         return overlap_seconds
 
+    def load_templates_for_analysis(self):
+        """Load templates for analysis dropdown"""
+        try:
+            # Ensure templates are loaded
+            if not hasattr(self, 'prompt_templates') or not self.prompt_templates:
+                self.load_templates()
+            
+            # Create analysis-ready template list
+            self.analysis_templates = {}
+            
+            # Add default templates
+            for template_id, template in self.prompt_templates.items():
+                if template.get('category') in ['real-time', 'risk-assessment', 'custom']:
+                    self.analysis_templates[template_id] = {
+                        'name': template.get('name', template_id),
+                        'description': template.get('description', ''),
+                        'category': template.get('category', 'custom'),
+                        'variables': template.get('variables', []),
+                        'prompt': template.get('prompt', ''),
+                        'created_by': template.get('created_by', 'system')
+                    }
+            
+            print(f"[ANALYSIS] Loaded {len(self.analysis_templates)} templates for analysis")
+            
+        except Exception as e:
+            print(f"Error loading templates for analysis: {e}")
+            self.analysis_templates = {}
+    
+    def get_template_dropdown_options(self):
+        """Get formatted options for template dropdown"""
+        try:
+            options = []
+            
+            # Group by category
+            categories = {'real-time': [], 'risk-assessment': [], 'custom': []}
+            
+            for template_id, template in self.analysis_templates.items():
+                category = template.get('category', 'custom')
+                name = template.get('name', template_id)
+                created_by = template.get('created_by', 'system')
+                
+                # Add emoji indicators
+                if created_by == 'user':
+                    display_name = f"📝 {name}"
+                else:
+                    display_name = f"⚙️ {name}"
+                
+                if category in categories:
+                    categories[category].append((template_id, display_name))
+            
+            # Build options list with category headers
+            for category, templates in categories.items():
+                if templates:
+                    # Add category separator
+                    category_names = {
+                        'real-time': '⚡ Real-time Analysis',
+                        'risk-assessment': '⚠️ Risk Assessment', 
+                        'custom': '🎨 Custom Templates'
+                    }
+                    
+                    for template_id, display_name in sorted(templates, key=lambda x: x[1]):
+                        options.append(display_name)
+            
+            return options if options else ["No templates available"]
+            
+        except Exception as e:
+            print(f"Error getting template options: {e}")
+            return ["Error loading templates"]
+    
+    def on_template_selection_changed(self, selection):
+        """Handle template selection change"""
+        try:
+            # Find template ID from display name
+            selected_template_id = None
+            for template_id, template in self.analysis_templates.items():
+                name = template.get('name', template_id)
+                created_by = template.get('created_by', 'system')
+                
+                if created_by == 'user':
+                    display_name = f"📝 {name}"
+                else:
+                    display_name = f"⚙️ {name}"
+                
+                if display_name == selection:
+                    selected_template_id = template_id
+                    break
+            
+            if selected_template_id:
+                self.selected_template_id = selected_template_id
+                template = self.analysis_templates[selected_template_id]
+                print(f"[TEMPLATE] Selected: {template.get('name')} ({selected_template_id})")
+                
+                # Update UI to show template info
+                self.update_template_info_display(template)
+            
+        except Exception as e:
+            print(f"Error handling template selection: {e}")
+    
+    def show_template_info(self):
+        """Show information about the currently selected template"""
+        try:
+            if not hasattr(self, 'selected_template_id') or not self.selected_template_id:
+                ctk.messagebox.showinfo("Template Info", "No template selected")
+                return
+            
+            template = self.analysis_templates.get(self.selected_template_id)
+            if not template:
+                ctk.messagebox.showinfo("Template Info", "Template not found")
+                return
+            
+            # Create info window
+            info_window = ctk.CTkToplevel(self.root)
+            info_window.title("Template Information")
+            info_window.geometry("500x400")
+            info_window.transient(self.root)
+            
+            # Template details
+            details_frame = ctk.CTkScrollableFrame(info_window)
+            details_frame.pack(fill="both", expand=True, padx=20, pady=20)
+            
+            # Name and category
+            ctk.CTkLabel(
+                details_frame,
+                text=template.get('name', 'Unknown Template'),
+                font=ctk.CTkFont(size=18, weight="bold")
+            ).pack(anchor="w", pady=(0, 10))
+            
+            ctk.CTkLabel(
+                details_frame,
+                text=f"Category: {template.get('category', 'Unknown')}",
+                font=ctk.CTkFont(size=12)
+            ).pack(anchor="w", pady=(0, 5))
+            
+            ctk.CTkLabel(
+                details_frame,
+                text=f"Created by: {template.get('created_by', 'Unknown')}",
+                font=ctk.CTkFont(size=12)
+            ).pack(anchor="w", pady=(0, 10))
+            
+            # Description
+            if template.get('description'):
+                ctk.CTkLabel(
+                    details_frame,
+                    text="Description:",
+                    font=ctk.CTkFont(size=14, weight="bold")
+                ).pack(anchor="w", pady=(10, 5))
+                
+                ctk.CTkLabel(
+                    details_frame,
+                    text=template.get('description'),
+                    font=ctk.CTkFont(size=12),
+                    wraplength=450
+                ).pack(anchor="w", pady=(0, 10))
+            
+            # Variables
+            variables = template.get('variables', [])
+            if variables:
+                ctk.CTkLabel(
+                    details_frame,
+                    text=f"Variables ({len(variables)}):",
+                    font=ctk.CTkFont(size=14, weight="bold")
+                ).pack(anchor="w", pady=(10, 5))
+                
+                for var in variables:
+                    ctk.CTkLabel(
+                        details_frame,
+                        text=f"• {{{var}}}",
+                        font=ctk.CTkFont(size=11),
+                        text_color="#888888"
+                    ).pack(anchor="w", padx=20)
+            
+            # Close button
+            ctk.CTkButton(
+                info_window,
+                text="Close",
+                command=info_window.destroy,
+                width=100
+            ).pack(pady=10)
+            
+        except Exception as e:
+            print(f"Error showing template info: {e}")
+            ctk.messagebox.showerror("Error", f"Failed to show template info: {str(e)}")
+    
+    def update_template_info_display(self, template):
+        """Update any UI elements that show template info"""
+        try:
+            # Update tooltip or status if needed
+            variables_count = len(template.get('variables', []))
+            category = template.get('category', 'unknown')
+            print(f"[UI] Template info updated: {variables_count} variables, category: {category}")
+            
+        except Exception as e:
+            print(f"Error updating template info display: {e}")
+    
     def update_insight_window_label(self, value):
         """Update insight time window label"""
         minutes = int(value)
@@ -6356,20 +7136,17 @@ Provide structured analysis in 200-300 words."""
             import threading
             def run_insight():
                 try:
-                    # Use Gemini to generate insight (backward compatible)
+                    # Use Gemini to generate insight
                     prompt = f"{prompt_data['prompt']}\n\nTranscript (last {window_minutes} min):\n{transcript_text}"
 
-                    if GEMINI_SDK_VERSION == 'unified' and self.gemini_client:
-                        # NEW unified SDK
+                    if hasattr(self, 'gemini_client') and self.gemini_client:
                         response = self.gemini_client.models.generate_content(
                             model=self.gemini_model,
                             contents=prompt
                         )
+                        insight_text = response.text
                     else:
-                        # OLD deprecated SDK
-                        response = self.gemini_model.generate_content(prompt)
-
-                    insight_text = response.text
+                        insight_text = "Gemini API not configured"
 
                     # Record LLM usage (Phase 5b)
                     input_tokens, output_tokens, cost = self.estimate_tokens_and_cost(prompt, insight_text)
@@ -6544,48 +7321,6 @@ Provide structured analysis in 200-300 words."""
     # ===================================================================
     # TEST HELPER: Verify new insights panel rendering
     # ===================================================================
-    def test_insight_card_rendering(self):
-        """Test method to verify new insights panel is working correctly"""
-        print("\n" + "="*60)
-        print("TESTING NEW INSIGHTS PANEL (Phase 1)")
-        print("="*60)
-        
-        # Test card 1: Full card with all fields
-        test_card_1 = {
-            'title': 'Test Insight #1',
-            'body': 'This is a test insight card with all fields populated. It should appear at the top of the insights panel.',
-            'tags': ['Test', 'Phase 1'],
-            'ts': datetime.now()
-        }
-        
-        # Test card 2: Minimal card (defaults)
-        test_card_2 = {
-            'body': 'This is a minimal test card with only body text. Title and tags should use defaults.'
-        }
-        
-        # Test card 3: Long text (wrapping test)
-        test_card_3 = {
-            'title': 'Long Text Test',
-            'body': 'This is a longer test to verify text wrapping works correctly in the insight cards. ' * 5,
-            'tags': ['Wrapping Test'],
-            'ts': datetime.now()
-        }
-        
-        # Add cards with delay
-        if self.insights_actions.add_insight_card:
-            print("Adding test card 1...")
-            self.insights_actions.add_insight_card(test_card_1)
-            
-            self.root.after(500, lambda: print("Adding test card 2..."))
-            self.root.after(500, lambda: self.insights_actions.add_insight_card(test_card_2))
-            
-            self.root.after(1000, lambda: print("Adding test card 3..."))
-            self.root.after(1000, lambda: self.insights_actions.add_insight_card(test_card_3))
-            
-            print("\n[OK] Test cards queued. Check the Insights Panel (right column).")
-            print("="*60 + "\n")
-        else:
-            print("ERROR: insights_actions.add_insight_card not available")
     
     # Legacy methods - kept for compatibility but disabled
     def update_analysis_mode(self):
@@ -6681,16 +7416,15 @@ Provide structured analysis in 200-300 words."""
 
 Provide a professional clinical summary suitable for therapist case notes."""
 
-                    # Use backward compatible Gemini API call
-                    if GEMINI_SDK_VERSION == 'unified' and self.gemini_client:
+                    # Use Gemini API call
+                    if hasattr(self, 'gemini_client') and self.gemini_client:
                         response = self.gemini_client.models.generate_content(
                             model=self.gemini_model,
                             contents=prompt
                         )
+                        summary_text = response.text
                     else:
-                        response = self.gemini_model.generate_content(prompt)
-
-                    summary_text = response.text
+                        summary_text = "Gemini API not configured"
 
                     progress_window.after(0, lambda: progress_bar.set(1.0))
                     progress_window.after(0, lambda: status_label.configure(text="Complete!"))
@@ -6793,16 +7527,15 @@ Provide a professional clinical summary suitable for therapist case notes."""
 
 Provide a complete, professional progress and process note suitable for clinical documentation."""
 
-                    # Use backward compatible Gemini API call
-                    if GEMINI_SDK_VERSION == 'unified' and self.gemini_client:
+                    # Use Gemini API call
+                    if hasattr(self, 'gemini_client') and self.gemini_client:
                         response = self.gemini_client.models.generate_content(
                             model=self.gemini_model,
                             contents=prompt
                         )
+                        notes_text = response.text
                     else:
-                        response = self.gemini_model.generate_content(prompt)
-
-                    notes_text = response.text
+                        notes_text = "Gemini API not configured"
 
                     progress_window.after(0, lambda: progress_bar.set(1.0))
                     progress_window.after(0, lambda: status_label.configure(text="Complete!"))
@@ -8245,10 +8978,10 @@ Audio Quality Report:
 
     def setup_claude_client(self):
         """Initialize Gemini API client with authentication (backward compatible)"""
-        print(f"Setting up Gemini client... SDK={GEMINI_SDK_VERSION}")
+        print("Setting up Gemini client with unified SDK...")
 
         if not GEMINI_AVAILABLE:
-            print("[ERROR] Gemini not available - install google-genai or google-generativeai")
+            print("[ERROR] Gemini not available - install: pip install google-genai")
             self.gemini_model = None
             self.gemini_client = None
             self.analysis_enabled = False
@@ -8266,56 +8999,30 @@ Audio Quality Report:
                 self.analysis_enabled = False
                 return
 
-            # Normalize model name: strip 'models/' prefix, avoid '-latest'
-            model_name = 'gemini-2.0-flash-001'  # Per Context7 docs: use bare ID
+            # Unified SDK pattern: store model name, use client for calls
+            model_name = 'gemini-2.0-flash-001'
 
-            if GEMINI_SDK_VERSION == 'unified':
-                # NEW unified SDK pattern
-                print("Initializing unified SDK client...")
-                self.gemini_client = genai.Client(api_key=api_key)
-                self.gemini_model = model_name
+            print("Initializing unified SDK client...")
+            self.gemini_client = genai.Client(api_key=api_key)
+            self.gemini_model = model_name  # Store model name as string
 
-                # Connectivity test
-                try:
-                    print(f"Testing connection with model '{model_name}'...")
-                    response = self.gemini_client.models.generate_content(
-                        model=model_name,
-                        contents='test'
-                    )
-                    print(f"[OK] Gemini API connected ({GEMINI_SDK_VERSION}): {response.text[:50]}")
-                    self.analysis_enabled = True
-                except Exception as test_error:
-                    print(f"[ERROR] Connectivity test failed: {test_error}")
-                    self.gemini_model = None
-                    self.analysis_enabled = False
-
-            elif GEMINI_SDK_VERSION == 'deprecated':
-                # OLD deprecated SDK pattern (backward compatible)
-                print("Initializing deprecated SDK client...")
-                genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel(model_name)
-                self.gemini_client = None  # Old SDK doesn't have client object
-
-                # Connectivity test
-                try:
-                    print(f"Testing connection with model '{model_name}'...")
-                    response = self.gemini_model.generate_content('test')
-                    print(f"[OK] Gemini API connected ({GEMINI_SDK_VERSION}): {response.text[:50]}")
-                    self.analysis_enabled = True
-                except Exception as test_error:
-                    print(f"[ERROR] Connectivity test failed: {test_error}")
-                    # Model might not exist yet - try fallback
-                    try:
-                        model_name = 'gemini-1.5-flash-latest'
-                        print(f"Retrying with fallback model: {model_name}")
-                        self.gemini_model = genai.GenerativeModel(model_name)
-                        response = self.gemini_model.generate_content('test')
-                        print(f"[OK] Fallback model works: {response.text[:50]}")
-                        self.analysis_enabled = True
-                    except Exception as fallback_error:
-                        print(f"[ERROR] Fallback also failed: {fallback_error}")
-                        self.gemini_model = None
-                        self.analysis_enabled = False
+            # Connectivity test
+            try:
+                print(f"Testing connection with model '{model_name}'...")
+                response = self.gemini_client.models.generate_content(
+                    model=model_name,
+                    contents='test'
+                )
+                print(f"[OK] Gemini API connected: {response.text[:50]}")
+                self.analysis_enabled = True
+            except APIError as api_err:
+                print(f"[ERROR] API error: {api_err.code} - {api_err.message}")
+                self.gemini_model = None
+                self.analysis_enabled = False
+            except Exception as test_error:
+                print(f"[ERROR] Connectivity test failed: {test_error}")
+                self.gemini_model = None
+                self.analysis_enabled = False
 
         except Exception as e:
             print(f"[ERROR] Gemini client setup error: {e}")
@@ -8536,16 +9243,16 @@ Audio Quality Report:
             # Rate limiting
             self.apply_rate_limiting()
 
-            # Call Gemini API (backward compatible)
+            # Call Gemini API
             start_time = time.time()
 
-            if GEMINI_SDK_VERSION == 'unified' and self.gemini_client:
+            if hasattr(self, 'gemini_client') and self.gemini_client:
                 response = self.gemini_client.models.generate_content(
                     model=self.gemini_model,
                     contents=prompt
                 )
             else:
-                response = self.gemini_model.generate_content(prompt)
+                raise Exception("Gemini API not configured")
 
             processing_time = time.time() - start_time
 
