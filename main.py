@@ -3112,6 +3112,31 @@ class AmanuensisApp:
             hover_color=self.colors.get('primary', '#2B5AA0')
         )
         self.template_info_btn.pack(side="right")
+        
+        # Category filter for templates (Phase 3 enhancement)
+        category_filter_frame = ctk.CTkFrame(controls_frame, fg_color="transparent")
+        category_filter_frame.pack(fill="x", padx=10, pady=(5, 0))
+        
+        ctk.CTkLabel(
+            category_filter_frame,
+            text="Filter:",
+            font=ctk.CTkFont(size=9),
+            text_color=self.colors.get('text_secondary', '#888888')
+        ).pack(side="left")
+        
+        self.template_category_filter = ctk.StringVar(value="All")
+        category_filter_dropdown = ctk.CTkOptionMenu(
+            category_filter_frame,
+            variable=self.template_category_filter,
+            values=["All", "Real-time", "Risk Assessment", "Custom"],
+            command=self.filter_analysis_templates,
+            font=ctk.CTkFont(size=9),
+            width=100,
+            height=24,
+            fg_color=self.colors.get('bg_accent', '#404040'),
+            button_color=self.colors.get('primary', '#2B5AA0')
+        )
+        category_filter_dropdown.pack(side="right")
 
         # Load prompts
         if not hasattr(self, 'insight_prompts'):
@@ -3198,13 +3223,13 @@ class AmanuensisApp:
         try:
             # Check if template is selected
             if not hasattr(self, 'selected_template_id') or not self.selected_template_id:
-                ctk.messagebox.showwarning("No Template", "Please select an analysis template first.")
+                messagebox.showwarning("No Template", "Please select an analysis template first.")
                 return
             
             # Get selected template
             template = self.analysis_templates.get(self.selected_template_id)
             if not template:
-                ctk.messagebox.showerror("Template Error", "Selected template not found.")
+                messagebox.showerror("Template Error", "Selected template not found.")
                 return
             
             # Get time window and transcript
@@ -3278,7 +3303,7 @@ class AmanuensisApp:
             
         except Exception as e:
             print(f"Error starting template analysis: {e}")
-            ctk.messagebox.showerror("Analysis Error", f"Failed to start analysis: {str(e)}")
+            messagebox.showerror("Analysis Error", f"Failed to start analysis: {str(e)}")
             self.template_analysis_btn.configure(text="🔍 Generate Analysis", state="normal")
     
     def prepare_template_variables(self, transcript_text, window_minutes):
@@ -3468,6 +3493,7 @@ class AmanuensisApp:
 
     def create_insights_section(self):
         """Create current insights section with enhanced clinical styling"""
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
         # Enhanced insights section with special clinical background
         insights_section = ctk.CTkFrame(
             self.analysis_content,
@@ -5613,6 +5639,7 @@ class AmanuensisApp:
 
     def create_template_list_item(self, template_id, template, index):
         """Create a template list item widget"""
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
         try:
             # Item frame
             item_frame = ctk.CTkFrame(
@@ -5793,7 +5820,7 @@ Provide structured analysis in 200-300 words."""
                 template_name = self.prompt_templates[self.current_template].get('name', self.current_template)
 
                 # Confirm deletion
-                result = ctk.messagebox.askyesno(
+                result = messagebox.askyesno(
                     "Delete Template",
                     f"Are you sure you want to delete '{template_name}'?\n\nThis action cannot be undone."
                 )
@@ -5801,7 +5828,7 @@ Provide structured analysis in 200-300 words."""
                 if result:
                     # Check if it's a default template
                     if self.prompt_templates[self.current_template].get('created_by') == 'system':
-                        ctk.messagebox.showwarning(
+                        messagebox.showwarning(
                             "Cannot Delete",
                             "Default templates cannot be deleted.\n\nYou can duplicate and modify them instead."
                         )
@@ -5829,6 +5856,26 @@ Provide structured analysis in 200-300 words."""
         except Exception as e:
             print(f"Error deleting template: {e}")
     
+    def filter_analysis_templates(self, category_filter):
+        """Filter analysis templates by category (Phase 3 enhancement)"""
+        try:
+            if hasattr(self, 'template_dropdown'):
+                # Update dropdown options with filter
+                new_options = self.get_template_dropdown_options(category_filter)
+                self.template_dropdown.configure(values=new_options)
+                
+                # Reset selection if current template is filtered out
+                current_selection = self.selected_template_var.get()
+                if current_selection not in new_options and new_options:
+                    if new_options[0] != "No templates available":
+                        self.selected_template_var.set(new_options[0])
+                        self.on_template_selection_changed(new_options[0])
+                
+                print(f"[FILTER] Filtered templates by '{category_filter}': {len(new_options)} options")
+                
+        except Exception as e:
+            print(f"Error filtering analysis templates: {e}")
+    
     def refresh_analysis_template_dropdown(self):
         """Refresh the analysis template dropdown with updated templates"""
         try:
@@ -5836,8 +5883,11 @@ Provide structured analysis in 200-300 words."""
                 # Reload templates for analysis
                 self.load_templates_for_analysis()
                 
-                # Update dropdown options
-                new_options = self.get_template_dropdown_options()
+                # Get current filter
+                current_filter = getattr(self, 'template_category_filter', ctk.StringVar(value="All")).get()
+                
+                # Update dropdown options with current filter
+                new_options = self.get_template_dropdown_options(current_filter)
                 self.template_dropdown.configure(values=new_options)
                 
                 # Ensure current selection is still valid
@@ -5924,7 +5974,7 @@ Provide structured analysis in 200-300 words."""
             validation_result = self.validate_template_data()
             if not validation_result['valid']:
                 progress_window.destroy()
-                ctk.messagebox.showerror("Validation Error", validation_result['error'])
+                messagebox.showerror("Validation Error", validation_result['error'])
                 return
             
             # Extract validated data
@@ -5979,10 +6029,10 @@ Provide structured analysis in 200-300 words."""
                 success_msg += f"📏 Length: {template_data['word_count']} words\n"
                 success_msg += f"🏷️ Category: {category}"
                 
-                ctk.messagebox.showinfo("Template Saved", success_msg)
+                messagebox.showinfo("Template Saved", success_msg)
                 print(f"[SUCCESS] Template '{name}' saved with {len(template_data['variables'])} variables")
             else:
-                ctk.messagebox.showerror("Save Failed", f"Failed to save template: {save_result['error']}")
+                messagebox.showerror("Save Failed", f"Failed to save template: {save_result['error']}")
                 print(f"[ERROR] Template save failed: {save_result['error']}")
 
         except Exception as e:
@@ -6002,7 +6052,7 @@ Provide structured analysis in 200-300 words."""
             detailed_error += "• Verify file permissions in app directory\n"
             detailed_error += "• Try closing and reopening settings"
             
-            ctk.messagebox.showerror("Save Error", detailed_error)
+            messagebox.showerror("Save Error", detailed_error)
 
     def validate_template_data(self):
         """Comprehensive template validation with detailed error reporting"""
@@ -6117,7 +6167,7 @@ Provide structured analysis in 200-300 words."""
 
         except Exception as e:
             print(f"Error testing template: {e}")
-            ctk.messagebox.showerror("Test Error", f"Failed to test template: {str(e)}")
+            messagebox.showerror("Test Error", f"Failed to test template: {str(e)}")
 
     def replace_template_variables(self, prompt_text, data):
         """Replace template variables with actual data"""
@@ -6435,6 +6485,7 @@ Provide structured analysis in 200-300 words."""
 
     def add_template_selection_to_settings(self):
         """Add template selection to analysis settings tab"""
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
         try:
             # This will be called from create_analysis_settings_tab to add template selector
             # Find the analysis tab frame
@@ -6897,8 +6948,8 @@ Provide structured analysis in 200-300 words."""
             print(f"Error loading templates for analysis: {e}")
             self.analysis_templates = {}
     
-    def get_template_dropdown_options(self):
-        """Get formatted options for template dropdown"""
+    def get_template_dropdown_options(self, category_filter="All"):
+        """Get formatted options for template dropdown with optional category filtering"""
         try:
             options = []
             
@@ -6909,6 +6960,16 @@ Provide structured analysis in 200-300 words."""
                 category = template.get('category', 'custom')
                 name = template.get('name', template_id)
                 created_by = template.get('created_by', 'system')
+                
+                # Apply category filter
+                if category_filter != "All":
+                    filter_mapping = {
+                        "Real-time": "real-time",
+                        "Risk Assessment": "risk-assessment",
+                        "Custom": "custom"
+                    }
+                    if category != filter_mapping.get(category_filter, category_filter.lower()):
+                        continue
                 
                 # Add emoji indicators
                 if created_by == 'user':
@@ -6971,12 +7032,12 @@ Provide structured analysis in 200-300 words."""
         """Show information about the currently selected template"""
         try:
             if not hasattr(self, 'selected_template_id') or not self.selected_template_id:
-                ctk.messagebox.showinfo("Template Info", "No template selected")
+                messagebox.showinfo("Template Info", "No template selected")
                 return
             
             template = self.analysis_templates.get(self.selected_template_id)
             if not template:
-                ctk.messagebox.showinfo("Template Info", "Template not found")
+                messagebox.showinfo("Template Info", "Template not found")
                 return
             
             # Create info window
@@ -7050,7 +7111,7 @@ Provide structured analysis in 200-300 words."""
             
         except Exception as e:
             print(f"Error showing template info: {e}")
-            ctk.messagebox.showerror("Error", f"Failed to show template info: {str(e)}")
+            messagebox.showerror("Error", f"Failed to show template info: {str(e)}")
     
     def update_template_info_display(self, template):
         """Update any UI elements that show template info"""
@@ -7062,6 +7123,252 @@ Provide structured analysis in 200-300 words."""
             
         except Exception as e:
             print(f"Error updating template info display: {e}")
+    
+    def use_template_immediately(self):
+        """Use the current template immediately for analysis (Phase 3 enhancement)"""
+        try:
+            # Validate current template
+            validation_result = self.validate_template_data()
+            if not validation_result['valid']:
+                messagebox.showerror("Template Invalid", 
+                    f"Please fix template issues first:\n\n{validation_result['error']}")
+                return
+            
+            # Save template first if it's new or modified
+            if not self.current_template or self.templates_modified:
+                save_result = messagebox.askyesno(
+                    "Save Template?", 
+                    "Template needs to be saved first. Save and use it now?"
+                )
+                if save_result:
+                    self.save_template()
+                else:
+                    return
+            
+            # Close settings window
+            if hasattr(self, 'settings_window') and self.settings_window:
+                self.settings_window.destroy()
+            
+            # Switch to insights panel and select this template
+            if hasattr(self, 'template_dropdown') and self.current_template:
+                # Refresh analysis templates
+                self.load_templates_for_analysis()
+                
+                # Find the template in dropdown options
+                template = self.prompt_templates.get(self.current_template)
+                if template:
+                    template_name = template.get('name', 'Unknown')
+                    created_by = template.get('created_by', 'system')
+                    
+                    # Create display name
+                    if created_by == 'user':
+                        display_name = f"📝 {template_name}"
+                    else:
+                        display_name = f"⚙️ {template_name}"
+                    
+                    # Update dropdown and selection
+                    new_options = self.get_template_dropdown_options()
+                    self.template_dropdown.configure(values=new_options)
+                    
+                    if display_name in new_options:
+                        self.selected_template_var.set(display_name)
+                        self.on_template_selection_changed(display_name)
+                        
+                        # Show success message
+                        self.show_toast(f"Template '{template_name}' ready for analysis!", 3000)
+                        
+                        print(f"[USE TEMPLATE] Switched to template: {template_name}")
+                    else:
+                        messagebox.showwarning("Template Not Found", 
+                            "Template was saved but not found in analysis dropdown.")
+                else:
+                    messagebox.showerror("Template Error", "Current template not found.")
+            else:
+                messagebox.showinfo("Template Ready", 
+                    "Template saved! Go to the Insights panel to use it for analysis.")
+                    
+        except Exception as e:
+            print(f"Error using template immediately: {e}")
+            messagebox.showerror("Error", f"Failed to use template: {str(e)}")
+    
+    def test_template_with_live_data(self):
+        """Test template with live session data (Phase 3 enhancement)"""
+        try:
+            # Validate template first
+            validation_result = self.validate_template_data()
+            if not validation_result['valid']:
+                messagebox.showerror("Template Invalid", 
+                    f"Please fix template issues first:\n\n{validation_result['error']}")
+                return
+            
+            # Get current template text
+            prompt_text = self.prompt_editor.get("1.0", "end-1c").strip()
+            if not prompt_text:
+                messagebox.showwarning("No Template", "Please enter a template to test.")
+                return
+            
+            # Check if we have session data
+            if not hasattr(self, 'current_session') or not self.current_session:
+                # Use sample data for testing
+                self.show_template_test_with_sample_data(prompt_text)
+                return
+            
+            # Get recent transcript for testing
+            window_minutes = 5  # Default test window
+            window_seconds = window_minutes * 60
+            transcript_text = self.get_recent_transcript(window_seconds)
+            
+            if not transcript_text or len(transcript_text.strip()) < 20:
+                # Use sample data if no real transcript
+                self.show_template_test_with_sample_data(prompt_text)
+                return
+            
+            # Prepare live variables
+            template_variables = self.prepare_template_variables(transcript_text, window_minutes)
+            
+            # Substitute variables
+            test_prompt = self.substitute_template_variables(prompt_text, template_variables)
+            
+            # Show test result window with live data
+            self.show_template_test_result(test_prompt, template_variables, is_live_data=True)
+            
+        except Exception as e:
+            print(f"Error testing template with live data: {e}")
+            messagebox.showerror("Test Error", f"Failed to test template: {str(e)}")
+    
+    def show_template_test_with_sample_data(self, prompt_text):
+        """Show template test with sample data when no live session"""
+        try:
+            # Sample data for testing
+            sample_variables = {
+                'transcript_segment': '[14:23:15] [CLIENT]: I\'ve been feeling really anxious about work lately. My boss keeps piling on more projects and I don\'t know how to handle it all. [14:24:02] [THERAPIST]: That sounds overwhelming. Can you tell me more about what specifically makes you feel most anxious?',
+                'session_context': 'Client discussing work-related stress and anxiety. Previous sessions focused on coping strategies and time management.',
+                'session_duration': '25',
+                'therapy_modality': 'CBT',
+                'analysis_history': 'Previous analysis identified catastrophic thinking patterns. Client showed insight into triggers.',
+                'risk_level': '3',
+                'window_minutes': '5',
+                'current_time': datetime.now().strftime('%H:%M:%S'),
+                'session_date': datetime.now().strftime('%Y-%m-%d')
+            }
+            
+            # Substitute variables
+            test_prompt = self.substitute_template_variables(prompt_text, sample_variables)
+            
+            # Show test result
+            self.show_template_test_result(test_prompt, sample_variables, is_live_data=False)
+            
+        except Exception as e:
+            print(f"Error showing sample test: {e}")
+            messagebox.showerror("Test Error", f"Failed to show test: {str(e)}")
+    
+    def show_template_test_result(self, test_prompt, variables, is_live_data=True):
+        """Show template test result in a detailed window"""
+        try:
+            # Create test result window
+            test_window = ctk.CTkToplevel(self.settings_window)
+            test_window.title("Template Test Result")
+            test_window.geometry("700x600")
+            test_window.transient(self.settings_window)
+            
+            # Header
+            header = ctk.CTkFrame(test_window, fg_color=self.colors.get('info', '#1d4ed8'))
+            header.pack(fill="x", padx=10, pady=(10, 5))
+            
+            data_type = "Live Session Data" if is_live_data else "Sample Data"
+            ctk.CTkLabel(
+                header,
+                text=f"🧪 Template Test Result ({data_type})",
+                font=ctk.CTkFont(size=16, weight="bold"),
+                text_color="white"
+            ).pack(pady=10)
+            
+            # Main content with tabs
+            tabview = ctk.CTkTabview(test_window)
+            tabview.pack(fill="both", expand=True, padx=10, pady=5)
+            
+            # Variables tab
+            variables_tab = tabview.add("Variables Used")
+            variables_frame = ctk.CTkScrollableFrame(variables_tab)
+            variables_frame.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            ctk.CTkLabel(
+                variables_frame,
+                text=f"Variables Substituted ({len(variables)}):",
+                font=ctk.CTkFont(size=14, weight="bold")
+            ).pack(anchor="w", pady=(0, 10))
+            
+            for var_name, var_value in variables.items():
+                var_frame = ctk.CTkFrame(variables_frame)
+                var_frame.pack(fill="x", pady=2)
+                
+                ctk.CTkLabel(
+                    var_frame,
+                    text=f"{{{var_name}}}:",
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    text_color=self.colors.get('primary', '#1e40af')
+                ).pack(anchor="w", padx=10, pady=(5, 0))
+                
+                value_text = str(var_value)[:200] + "..." if len(str(var_value)) > 200 else str(var_value)
+                ctk.CTkLabel(
+                    var_frame,
+                    text=value_text,
+                    font=ctk.CTkFont(size=10),
+                    wraplength=600,
+                    justify="left"
+                ).pack(anchor="w", padx=20, pady=(0, 5))
+            
+            # Final prompt tab
+            prompt_tab = tabview.add("Final Prompt")
+            prompt_frame = ctk.CTkFrame(prompt_tab)
+            prompt_frame.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            ctk.CTkLabel(
+                prompt_frame,
+                text="Final Prompt (Ready for AI):",
+                font=ctk.CTkFont(size=14, weight="bold")
+            ).pack(anchor="w", padx=10, pady=(10, 5))
+            
+            prompt_textbox = ctk.CTkTextbox(
+                prompt_frame,
+                font=ctk.CTkFont(size=11),
+                wrap="word"
+            )
+            prompt_textbox.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+            prompt_textbox.insert("1.0", test_prompt)
+            
+            # Action buttons
+            button_frame = ctk.CTkFrame(test_window, fg_color="transparent")
+            button_frame.pack(fill="x", padx=10, pady=(5, 10))
+            
+            # Copy prompt button
+            copy_btn = ctk.CTkButton(
+                button_frame,
+                text="📋 Copy Prompt",
+                command=lambda: self.copy_to_clipboard(test_prompt),
+                width=120
+            )
+            copy_btn.pack(side="left", padx=(0, 10))
+            
+            # Close button
+            ctk.CTkButton(
+                button_frame,
+                text="Close",
+                command=test_window.destroy,
+                width=100
+            ).pack(side="right")
+            
+        except Exception as e:
+            print(f"Error showing test result: {e}")
+    
+    def copy_to_clipboard(self, text):
+        """Copy text to clipboard"""
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.show_toast("Copied to clipboard!", 2000)
+        except Exception as e:
+            print(f"Error copying to clipboard: {e}")
     
     def update_insight_window_label(self, value):
         """Update insight time window label"""
@@ -9751,6 +10058,7 @@ Generated by Amanuensis V2
 
     def create_resize_handle(self, handle_type):
         """Create a visual resize handle between panels"""
+        bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
         try:
             # Create a subtle resize indicator
             handle = ctk.CTkFrame(
