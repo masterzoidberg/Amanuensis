@@ -2243,6 +2243,9 @@ class AmanuensisApp:
     def update_frame_widget_theme(self, frame):
         """Update individual frame theme"""
         try:
+            # Define color tuples for theme switching
+            bg_accent_tuple = ("#e9ecef", "#404040")  # (light, dark)
+
             # Determine frame type and apply appropriate colors
             current_fg = frame.cget("fg_color")
 
