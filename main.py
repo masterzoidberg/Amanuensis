@@ -6677,7 +6677,7 @@ class AmanuensisApp:
         try:
             config = {
                 'dashboard': {
-                    'appearance_mode': self.appearance_mode_var.get() if hasattr(self, 'appearance_mode_var') else 'light',
+                    'appearance_mode': self.current_theme,
                     'analysis_auto_expand': self.analysis_auto_expand_var.get() if hasattr(self, 'analysis_auto_expand_var') else True,
                     'show_timestamps': self.show_timestamps_var.get() if hasattr(self, 'show_timestamps_var') else True,
                     'risk_alert_position': self.risk_alert_position_var.get() if hasattr(self, 'risk_alert_position_var') else 'top_right'
