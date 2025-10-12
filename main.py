@@ -4990,10 +4990,21 @@ class AmanuensisApp:
 
         self.active_provider_var = ctk.StringVar(value=self.active_provider)
 
+        # Callback to show/hide provider sections
+        def on_provider_change(selected_provider):
+            """Show only the selected provider's section"""
+            if hasattr(self, 'provider_sections'):
+                for provider_id, section_frame in self.provider_sections.items():
+                    if provider_id == selected_provider:
+                        section_frame.pack(fill="x", pady=(0, 15))
+                    else:
+                        section_frame.pack_forget()
+
         provider_selector = ctk.CTkComboBox(
             provider_select_frame,
             values=['gemini', 'claude', 'openai', 'openrouter'],
             variable=self.active_provider_var,
+            command=on_provider_change,
             width=400,
             fg_color=self.colors.get('input_background', '#1a1a1a' if is_dark else '#ffffff'),
             button_color=self.colors.get('primary', '#5b9cff'),
@@ -5012,8 +5023,11 @@ class AmanuensisApp:
                 'openrouter': ''
             }
 
+        # Initialize provider sections dictionary
+        self.provider_sections = {}
+
         # Gemini Section
-        self._create_provider_section(
+        self.provider_sections['gemini'] = self._create_provider_section(
             scroll_frame,
             bg_accent_tuple,
             is_dark,
@@ -5025,7 +5039,7 @@ class AmanuensisApp:
         )
 
         # Claude Section
-        self._create_provider_section(
+        self.provider_sections['claude'] = self._create_provider_section(
             scroll_frame,
             bg_accent_tuple,
             is_dark,
@@ -5037,7 +5051,7 @@ class AmanuensisApp:
         )
 
         # OpenAI Section
-        self._create_provider_section(
+        self.provider_sections['openai'] = self._create_provider_section(
             scroll_frame,
             bg_accent_tuple,
             is_dark,
@@ -5049,7 +5063,7 @@ class AmanuensisApp:
         )
 
         # OpenRouter Section
-        self._create_provider_section(
+        self.provider_sections['openrouter'] = self._create_provider_section(
             scroll_frame,
             bg_accent_tuple,
             is_dark,
@@ -5059,6 +5073,11 @@ class AmanuensisApp:
             docs_url='https://openrouter.ai/keys',
             models=['auto', 'anthropic/claude-3.5-sonnet', 'openai/gpt-4-turbo', 'meta-llama/llama-3.1-70b-instruct']
         )
+
+        # Initially show only the active provider's section
+        for provider_id, section_frame in self.provider_sections.items():
+            if provider_id != self.active_provider:
+                section_frame.pack_forget()
 
     def _create_provider_section(self, parent, bg_accent_tuple, is_dark, provider_id, provider_name, placeholder, docs_url, models):
         """Create a provider API key section with input, test, and model selection"""
@@ -5185,6 +5204,9 @@ class AmanuensisApp:
             text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
         )
         model_dropdown.pack(anchor="w")
+
+        # Return the provider frame so it can be stored for visibility toggling
+        return provider_frame
 
     def _open_url(self, url):
         """Open URL in default browser"""
