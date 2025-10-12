@@ -5922,11 +5922,44 @@ class AmanuensisApp:
 
     def refresh_insights_panel_presets(self):
         """Refresh the preset buttons in the insights panel"""
-        # This will recreate the buttons dynamically
-        # We'll need to update ui_components_new.py to support this
-        print(f"[PRESETS] Refreshed: {len([p for p in self.insights_presets if p['enabled']])} enabled")
-        # TODO: Implement dynamic button refresh in UI
-        self.show_toast("Preset buttons will update on next restart", 2000)
+        print(f"[PRESETS] Refreshing: {len([p for p in self.insights_presets if p['enabled']])} enabled")
+
+        # Update the state with new presets
+        self.insights_state.insights_presets = self.insights_presets
+
+        # Recreate the Insights panel to reflect changes
+        if hasattr(self, 'insights_panel_frame') and self.insights_panel_frame.winfo_exists():
+            try:
+                # Get the current index in the paned window
+                paned_children = list(self.main_paned_window.panes())
+                insights_index = paned_children.index(str(self.insights_panel_frame))
+
+                # Destroy the old panel
+                self.insights_panel_frame.destroy()
+
+                # Recreate the Insights panel
+                self.insights_panel_frame = create_insights_panel_new(
+                    self.root,
+                    self.insights_state,
+                    self.insights_actions,
+                    self.colors
+                )
+
+                # Re-add to paned window at the same position
+                self.main_paned_window.insert(insights_index, self.insights_panel_frame)
+
+                # Re-apply minsize constraint
+                try:
+                    self.main_paned_window.pane(insights_index, minsize=300)
+                except:
+                    pass
+
+                print(f"[PRESETS] Successfully refreshed Insights panel")
+                self.show_toast("Preset buttons updated!", 2000)
+
+            except Exception as e:
+                print(f"[PRESETS] Error refreshing panel: {e}")
+                self.show_toast("Failed to refresh presets", 2000)
 
     def create_prompt_editor_tab(self):
         """Create prompt template editor interface"""
