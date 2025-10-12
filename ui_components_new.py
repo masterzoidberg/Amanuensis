@@ -196,18 +196,14 @@ def create_insights_panel_new(root, state, actions, theme) -> ctk.CTkFrame:
     )
     
     def on_timeline_slider_change(value):
-        """Update timeline label, filter cards, and notify action"""
+        """Update timeline label and notify action"""
         nonlocal current_timeline_window
         int_val = int(value)
         current_timeline_window = int_val
         timeline_value_var.set(int_val)
         timeline_label.configure(text=f"{int_val} min")
 
-        # Trigger filtering
-        if panel_frame.winfo_exists():
-            filter_cards_by_window()
-
-        # Notify action
+        # Notify action (used for setting analysis window)
         if hasattr(actions, 'on_timeline_change'):
             actions.on_timeline_change(int_val)
     
@@ -225,22 +221,57 @@ def create_insights_panel_new(root, state, actions, theme) -> ctk.CTkFrame:
     timeline_label.grid(row=0, column=1, sticky="e")
     
     # ===================================================================
-    # ROW 2: "Insights" Section Header
+    # ROW 2: Preset Action Buttons (Dynamic from config)
     # ===================================================================
-    insights_header = ctk.CTkLabel(
-        panel_frame,
-        text="Insights",
-        font=ctk.CTkFont(size=14, weight="bold"),
-        text_color=get_theme_color('text_primary', '#ffffff'),
-        anchor="w"
-    )
-    insights_header.grid(row=2, column=0, sticky="ew", padx=15, pady=(5, 5))
-    
+    preset_frame = ctk.CTkFrame(panel_frame, fg_color="transparent")
+    preset_frame.grid(row=2, column=0, sticky="ew", padx=15, pady=(5, 5))
+
+    # Get presets from state (configured in settings)
+    insights_presets = getattr(state, 'insights_presets', [])
+    enabled_presets = [p for p in insights_presets if p.get('enabled', True)]
+
+    # Configure grid columns dynamically based on number of presets
+    num_presets = len(enabled_presets)
+    if num_presets > 0:
+        for i in range(num_presets):
+            preset_frame.grid_columnconfigure(i, weight=1)
+
+        # Render each enabled preset as a button
+        for idx, preset in enumerate(enabled_presets):
+            preset_id = preset.get('id', f'preset_{idx}')
+            preset_label = preset.get('label', f'Preset {idx+1}')
+
+            # Create button with handler
+            def make_preset_handler(pid):
+                return lambda: actions.on_preset_click(pid) if hasattr(actions, 'on_preset_click') else None
+
+            preset_btn = ctk.CTkButton(
+                preset_frame,
+                text=preset_label,
+                command=make_preset_handler(preset_id),
+                font=ctk.CTkFont(size=10),
+                height=28,
+                fg_color=get_theme_color('primary', '#1e40af'),
+                hover_color=get_theme_color('accent', '#6d28d9')
+            )
+
+            # Add padding between buttons except for the last one
+            padx_config = (0, 5) if idx < num_presets - 1 else (0, 0)
+            preset_btn.grid(row=0, column=idx, sticky="ew", padx=padx_config)
+
+    else:
+        # Fallback if no presets configured
+        ctk.CTkLabel(
+            preset_frame,
+            text="No presets configured. Configure in Settings → Insights Presets",
+            font=ctk.CTkFont(size=10),
+            text_color=get_theme_color('text_muted', '#888888')
+        ).grid(row=0, column=0, sticky="w")
+
     # ===================================================================
-    # ROW 3: Scrollable Insight Cards Area (EXPANDS)
+    # ROW 3: Chat Area (EXPANDS) - replaces card stack
     # ===================================================================
-    # Per CustomTkinter docs: CTkScrollableFrame with grid sticky="nsew" + weight=1
-    scrollable_cards = ctk.CTkScrollableFrame(
+    chat_scrollable = ctk.CTkScrollableFrame(
         panel_frame,
         fg_color=get_theme_color('bg_primary', '#1a1a1a'),
         scrollbar_fg_color=get_theme_color('bg_accent', '#404040'),
@@ -248,253 +279,167 @@ def create_insights_panel_new(root, state, actions, theme) -> ctk.CTkFrame:
         scrollbar_button_hover_color=get_theme_color('accent', '#6d28d9'),
         corner_radius=6
     )
-    scrollable_cards.grid(row=3, column=0, sticky="nsew", padx=10, pady=5)
-    scrollable_cards.grid_columnconfigure(0, weight=1)
+    chat_scrollable.grid(row=3, column=0, sticky="nsew", padx=10, pady=5)
+    chat_scrollable.grid_columnconfigure(0, weight=1)
     
-    # Card tracking and timeline state
-    card_widgets = []  # List of (card_data, widget) tuples for management
+    # Chat message tracking
+    message_widgets = []  # List of message widget references
     current_timeline_window = 0  # Minutes (0 = show all)
 
     # ===================================================================
-    # HELPER: Render individual insight card
+    # HELPER: Render chat message bubble
     # ===================================================================
-    def _render_insight_card(parent, card_data: Dict[str, Any], row_idx: int):
-        """Render a single insight card with title, body, tags, and footer."""
-        # Extract card data with defaults
-        title = card_data.get('title', 'Live Therapist Insight')
-        body = card_data.get('body', '')
-        tags = card_data.get('tags', [])
-        ts = card_data.get('ts', datetime.now())
+    def render_message_bubble(parent, message: Dict[str, Any], row_idx: int):
+        """Render a chat-style message bubble (user or assistant)."""
+        role = message.get('role', 'assistant')
+        content = message.get('content', '')
+        timestamp = message.get('timestamp', datetime.now().strftime("%H:%M:%S"))
+        metadata = message.get('metadata', {})
 
-        # Format timestamp
-        if isinstance(ts, datetime):
-            ts_str = ts.strftime("%H:%M:%S")
-        elif isinstance(ts, str):
-            ts_str = ts
+        # User messages: darker background, left-aligned
+        # Assistant messages: slightly lighter, left-aligned
+        if role == 'user':
+            bubble_fg = get_theme_color('bg_accent', '#2b2b2b')
+            label_prefix = "You: "
         else:
-            ts_str = datetime.now().strftime("%H:%M:%S")
+            bubble_fg = '#1e1e1e'  # Slightly lighter than bg_primary
+            label_prefix = "Assistant: "
 
-        # Check if verbatim mode (monospace body)
-        is_verbatim = 'verbatim' in [t.lower() for t in tags]
-
-        # Create card frame
-        card_frame = ctk.CTkFrame(
+        # Create bubble frame
+        bubble_frame = ctk.CTkFrame(
             parent,
-            fg_color=get_theme_color('bg_accent', '#404040'),
+            fg_color=bubble_fg,
             corner_radius=8,
             border_width=1,
             border_color=get_theme_color('border_subtle', '#404040')
         )
-        card_frame.grid(row=row_idx, column=0, sticky="ew", padx=5, pady=5)
-        card_frame.grid_columnconfigure(0, weight=1)
+        bubble_frame.grid(row=row_idx, column=0, sticky="ew", padx=5, pady=5)
+        bubble_frame.grid_columnconfigure(0, weight=1)
 
-        # Title (bold)
-        if title:
-            title_label = ctk.CTkLabel(
-                card_frame,
-                text=title,
-                font=ctk.CTkFont(size=13, weight="bold"),
-                text_color=get_theme_color('text_primary', '#ffffff'),
-                anchor="w",
-                justify="left"
-            )
-            title_label.grid(row=0, column=0, sticky="w", padx=12, pady=(10, 5))
+        # Header: role + timestamp
+        header_frame = ctk.CTkFrame(bubble_frame, fg_color="transparent")
+        header_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=(8, 5))
+        header_frame.grid_columnconfigure(0, weight=1)
 
-        # Body (wrapped text, optional monospace)
-        if body:
-            body_font = ctk.CTkFont(size=12, family="Consolas") if is_verbatim else ctk.CTkFont(size=12)
-            body_label = ctk.CTkLabel(
-                card_frame,
-                text=body,
-                font=body_font,
-                text_color=get_theme_color('text_secondary', '#e0e0e0'),
-                anchor="w",
-                justify="left",
-                wraplength=380  # Wrap text to fit panel
-            )
-            body_label.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+        role_label = ctk.CTkLabel(
+            header_frame,
+            text=label_prefix,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=get_theme_color('text_primary', '#ffffff'),
+            anchor="w"
+        )
+        role_label.grid(row=0, column=0, sticky="w")
 
-        # PATCH_6: Make card clickable to show full text
-        # Reasoning: Cards may truncate long text - click to see full content
-        def on_card_click(event):
-            """Show full insight text in popup dialog"""
-            from tkinter import messagebox
-            full_title = title or "Insight"
-            full_body = body or "(No content)"
-            full_tags = ", ".join(tags) if tags else "No tags"
-
-            messagebox.showinfo(
-                full_title,
-                f"{full_body}\n\nTags: {full_tags}",
-                parent=panel_frame
-            )
-
-        # Bind click event to card frame
-        card_frame.bind("<Button-1>", on_card_click)
-
-        # Also bind to title and body labels for better hit area
-        if title:
-            title_label.bind("<Button-1>", on_card_click)
-        if body:
-            body_label.bind("<Button-1>", on_card_click)
-
-        # Change cursor to pointer on hover
-        card_frame.configure(cursor="hand2")
-
-        # Tags row (colored badges)
-        if tags and len(tags) > 0:
-            tags_frame = ctk.CTkFrame(card_frame, fg_color="transparent")
-            tags_frame.grid(row=2, column=0, sticky="w", padx=12, pady=(0, 8))
-
-            for tag in tags[:3]:  # Max 3 tags to avoid overflow
-                # Get tag color from mapping or default
-                tag_color = tag_colors.get(tag, get_theme_color('info', '#1d4ed8'))
-                tag_badge = ctk.CTkLabel(
-                    tags_frame,
-                    text=tag,
-                    font=ctk.CTkFont(size=10, weight="bold"),
-                    text_color="#ffffff",
-                    fg_color=tag_color,
-                    corner_radius=4,
-                    padx=8,
-                    pady=2
-                )
-                tag_badge.pack(side="left", padx=(0, 5))
-
-        # Footer: "Sent at hh:mm:ss"
-        footer_label = ctk.CTkLabel(
-            card_frame,
-            text=f"Sent at {ts_str}",
-            font=ctk.CTkFont(size=10, slant="italic"),
+        timestamp_label = ctk.CTkLabel(
+            header_frame,
+            text=timestamp,
+            font=ctk.CTkFont(size=10),
             text_color=get_theme_color('text_muted', '#b0b0b0'),
             anchor="e"
         )
-        footer_label.grid(row=3, column=0, sticky="e", padx=12, pady=(0, 8))
+        timestamp_label.grid(row=0, column=1, sticky="e")
 
-        return card_frame
+        # Content (full text, wraps without truncation)
+        content_label = ctk.CTkLabel(
+            bubble_frame,
+            text=content,
+            font=ctk.CTkFont(size=12),
+            text_color=get_theme_color('text_secondary', '#e0e0e0'),
+            anchor="w",
+            justify="left",
+            wraplength=700  # Wide wrap for readability
+        )
+        content_label.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
 
-    # ===================================================================
-    # HELPER: Filter and re-render cards based on timeline window
-    # ===================================================================
-    def filter_cards_by_window():
-        """Filter visible cards by timeline window (minutes from now)."""
-        verbose = getattr(state, 'VERBOSE_INSIGHTS', False)
+        # Optional: Show metadata (template, time window, cost)
+        if metadata:
+            meta_frame = ctk.CTkFrame(bubble_frame, fg_color="transparent")
+            meta_frame.grid(row=2, column=0, sticky="w", padx=12, pady=(0, 8))
 
-        # Clear existing widgets
-        for _, widget in card_widgets:
-            if widget and widget.winfo_exists():
-                widget.destroy()
-        card_widgets.clear()
+            meta_parts = []
+            if 'template' in metadata:
+                meta_parts.append(f"Template: {metadata['template']}")
+            if 'time_window' in metadata:
+                meta_parts.append(f"Window: {metadata['time_window']}")
+            if 'cost' in metadata:
+                meta_parts.append(f"Cost: ${metadata['cost']:.4f}")
 
-        # Get all cards from state.insights deque
-        if not hasattr(state, 'insights') or not state.insights:
-            return
+            if meta_parts:
+                meta_label = ctk.CTkLabel(
+                    meta_frame,
+                    text=" • ".join(meta_parts),
+                    font=ctk.CTkFont(size=9),
+                    text_color=get_theme_color('text_muted', '#888888'),
+                    anchor="w"
+                )
+                meta_label.pack(side="left")
 
-        # Filter by window (0 = show all)
-        now = datetime.now()
-        visible_cards = []
-
-        for card in state.insights:
-            ts = card.get('ts', now)
-            if isinstance(ts, str):
-                # Try parsing if string
-                try:
-                    ts = datetime.strptime(ts, "%H:%M:%S")
-                except:
-                    ts = now
-
-            if current_timeline_window == 0:
-                # Show all
-                visible_cards.append(card)
-            else:
-                # Check if within window
-                delta_seconds = (now - ts).total_seconds()
-                window_seconds = current_timeline_window * 60
-                if delta_seconds <= window_seconds:
-                    visible_cards.append(card)
-
-        # Re-render visible cards (newest first)
-        for idx, card in enumerate(visible_cards):
-            widget = _render_insight_card(scrollable_cards, card, idx)
-            card_widgets.append((card, widget))
-
-        if verbose:
-            print(f"INSIGHTS filter window={current_timeline_window} visible={len(visible_cards)}")
+        return bubble_frame
 
     # ===================================================================
-    # HELPER: Add card to state and UI
+    # HELPER: Add chat message to history and UI
     # ===================================================================
-    def add_card(card_data: Dict[str, Any]):
+    def add_chat_message(role: str, content: str, metadata: Dict = None):
         """
-        Add an insight card to state and UI (newest first, with smart scrolling).
+        Add a chat message to history and render in UI.
 
         Args:
-            card_data: Dict with keys:
-                - title (str, optional): defaults to "Live Therapist Insight"
-                - body (str, required)
-                - tags (list[str], optional): defaults to []
-                - ts (datetime or str, optional): defaults to now
+            role: 'user' or 'assistant'
+            content: Full message text (no truncation)
+            metadata: Optional dict with template, time_window, cost
         """
-        # Robustness: check if panel still exists
         if not panel_frame.winfo_exists():
             return
 
         verbose = getattr(state, 'VERBOSE_INSIGHTS', False)
 
-        # Apply defaults
-        if 'title' not in card_data:
-            card_data['title'] = 'Live Therapist Insight'
-        if 'tags' not in card_data:
-            card_data['tags'] = []
-        if 'ts' not in card_data:
-            card_data['ts'] = datetime.now()
+        # Create message object
+        message = {
+            'role': role,
+            'content': content,
+            'timestamp': datetime.now().strftime("%H:%M:%S"),
+            'metadata': metadata or {}
+        }
 
-        # Diagnostic logging
+        # Add to chat history
+        if hasattr(state, 'chat_history'):
+            state.chat_history.append(message)
+
         if verbose:
-            title = card_data.get('title', '')
+            print(f"CHAT add_message role={role} len={len(content)}")
+
+        # Render message
+        row_idx = len(message_widgets)
+        widget = render_message_bubble(chat_scrollable, message, row_idx)
+        message_widgets.append(widget)
+
+        # Auto-scroll to bottom
+        try:
+            if chat_scrollable.winfo_exists():
+                chat_scrollable._parent_canvas.yview_moveto(1.0)
+        except:
+            pass
+
+        # Show toast for assistant messages
+        if role == 'assistant':
+            show_toast(f"Response received ({len(content)} chars)")
+
+    # Attach add_chat_message to actions for external access
+    if hasattr(actions, '__dict__'):
+        actions.add_chat_message = lambda role, content, metadata=None: panel_frame.after(0, lambda: add_chat_message(role, content, metadata))
+        # Keep backward compatibility with add_insight_card
+        def legacy_add_card(card_data):
+            """Convert old card format to chat message"""
+            title = card_data.get('title', 'Insight')
             body = card_data.get('body', '')
             tags = card_data.get('tags', [])
-            print(f"INSIGHTS add_card title=\"{title}\" len={len(body)} tags={tags}")
-
-        # Add to state.insights deque (newest first)
-        if hasattr(state, 'insights'):
-            state.insights.appendleft(card_data)
-
-        # Check scroll position BEFORE adding (smart scroll detection)
-        scroll_near_bottom = False
-        try:
-            if scrollable_cards.winfo_exists():
-                canvas = scrollable_cards._parent_canvas
-                # Get current scroll position (0.0 = top, 1.0 = bottom)
-                yview = canvas.yview()
-                # If within 100px of bottom or at bottom, auto-scroll
-                # yview[1] close to 1.0 means near bottom
-                scroll_near_bottom = yview[1] >= 0.9
-        except:
-            # Fallback: always scroll if detection fails
-            scroll_near_bottom = True
-
-        # Re-render all cards via filter (handles timeline window)
-        filter_cards_by_window()
-
-        # Auto-scroll only if user was near bottom
-        if scroll_near_bottom:
-            try:
-                if scrollable_cards.winfo_exists():
-                    scrollable_cards._parent_canvas.yview_moveto(0.0)
-            except:
-                pass
-
-        # Show toast notification
-        body_len = len(card_data.get('body', ''))
-        show_toast(f"Insight received ({body_len} chars)")
-    
-    # Attach add_card method to actions for external access
-    if hasattr(actions, '__dict__'):
-        actions.add_insight_card = lambda card: panel_frame.after(0, lambda: add_card(card))
+            full_content = f"{title}\n\n{body}" if title != 'Live Therapist Insight' else body
+            metadata = {'tags': ', '.join(tags)} if tags else {}
+            add_chat_message('assistant', full_content, metadata)
+        actions.add_insight_card = lambda card: panel_frame.after(0, lambda: legacy_add_card(card))
     
     # ===================================================================
-    # ROW 4: Input Row (Entry + Send Button)
+    # ROW 4: Input Row (Chat-style)
     # ===================================================================
     input_frame = ctk.CTkFrame(
         panel_frame,
@@ -503,48 +448,48 @@ def create_insights_panel_new(root, state, actions, theme) -> ctk.CTkFrame:
     )
     input_frame.grid(row=4, column=0, sticky="ew", padx=10, pady=5)
     input_frame.grid_columnconfigure(0, weight=1)
-    
-    input_label = ctk.CTkLabel(
-        input_frame,
-        text="Quick Insight Query:",
-        font=ctk.CTkFont(size=11, weight="bold"),
-        text_color=get_theme_color('text_primary', '#ffffff'),
-        anchor="w"
-    )
-    input_label.grid(row=0, column=0, sticky="w", padx=10, pady=(8, 5), columnspan=2)
-    
+
     insight_entry = ctk.CTkEntry(
         input_frame,
         placeholder_text="Ask about the session...",
-        font=ctk.CTkFont(size=11),
-        height=32,
+        font=ctk.CTkFont(size=12),
+        height=36,
         fg_color=get_theme_color('bg_primary', '#1a1a1a'),
         border_color=get_theme_color('border_subtle', '#404040'),
         text_color=get_theme_color('text_primary', '#ffffff')
     )
-    insight_entry.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
-    
-    def send_insight():
-        """Handle send button click or Enter key"""
+    insight_entry.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+
+    def send_message():
+        """Send user message and trigger analysis"""
         text = insight_entry.get().strip()
-        if text and hasattr(actions, 'on_send_insight'):
-            insight_entry.delete(0, 'end')
-            actions.on_send_insight(text)
-    
+        if not text:
+            return
+
+        # Clear input
+        insight_entry.delete(0, 'end')
+
+        # Add user message to chat
+        add_chat_message('user', text)
+
+        # Trigger backend handler
+        if hasattr(actions, 'on_send_insight'):
+            actions.on_send_insight(text, template=None)
+
     send_button = ctk.CTkButton(
         input_frame,
         text="Send",
-        font=ctk.CTkFont(size=11, weight="bold"),
-        width=70,
-        height=32,
-        command=send_insight,
+        font=ctk.CTkFont(size=12, weight="bold"),
+        width=80,
+        height=36,
+        command=send_message,
         fg_color=get_theme_color('primary', '#1e40af'),
         hover_color=get_theme_color('accent', '#6d28d9')
     )
-    send_button.grid(row=1, column=1, sticky="e", padx=10, pady=(0, 10))
-    
-    # Bind Enter key to send (single-line only, no Shift+Enter needed)
-    insight_entry.bind("<Return>", lambda e: send_insight())
+    send_button.grid(row=0, column=1, sticky="e", padx=10, pady=10)
+
+    # Bind Enter key to send
+    insight_entry.bind("<Return>", lambda e: send_message())
     
     # ===================================================================
     # ROW 5: Summary Footer (Analyzed, Cost, Avg Phrase)

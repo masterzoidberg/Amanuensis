@@ -124,7 +124,7 @@ class AmanuensisApp:
         self._countdown_after_id = None  # Track countdown timer for cancellation
         self._last_status_text = ""  # For de-duplication
 
-        # Turn ID mapping for stable updates (PHI approval path)
+        # Turn ID mapping for stable updates
         self._last_turn_id_by_hash = {}  # Maps hash(start, speaker, text_prefix) -> turn_id
 
         # Pyannote.audio advanced diarization state
@@ -215,12 +215,40 @@ class AmanuensisApp:
             # Phase 5b: LLM usage tracking
             llm_cost_total=0.0,
             llm_tokens_in=0,
-            llm_tokens_out=0
+            llm_tokens_out=0,
+            # Chat-style history for new UI
+            chat_history=[],
+            # Insights presets for dynamic button rendering
+            insights_presets=[]  # Will be populated from self.insights_presets after config load
         )
+
+        # Insights Presets Configuration (customizable in settings)
+        self.insights_presets = [
+            {
+                'id': 'themes',
+                'label': '🎯 Themes',
+                'query': 'Identify the main therapeutic themes and patterns in this session excerpt.',
+                'enabled': True
+            },
+            {
+                'id': 'progress',
+                'label': '📈 Progress',
+                'query': 'Analyze the client\'s progress and emotional state based on this conversation.',
+                'enabled': True
+            },
+            {
+                'id': 'risk',
+                'label': '⚠️ Risk',
+                'query': 'Assess any risk factors or safety concerns mentioned in this session.',
+                'enabled': True
+            }
+        ]
         
         self.insights_actions = SimpleNamespace(
             on_send_insight=None,
             add_insight_card=None,
+            add_chat_message=None,
+            on_preset_click=None,
             on_timeline_change=None,
             update_summary=None,
         )
@@ -264,7 +292,7 @@ class AmanuensisApp:
 
         self.transcript_panel_actions = SimpleNamespace(
             append_turn=None,
-            update_turn=None, # Added for PHI approval workflow
+            update_turn=None, # Support for turn updates
             update_font=None,
             refresh_roles=None,
             text_widget=None,
@@ -349,6 +377,9 @@ class AmanuensisApp:
             messagebox.showerror("Audio Error", f"Failed to initialize audio system: {str(e)}")
             self.audio_devices = {"input": [], "output": [], "loopback": []}
         
+        # Sync insights_presets to insights_state for UI access
+        self.insights_state.insights_presets = self.insights_presets
+
         # Build UI first
         self.create_ui()
         
@@ -1071,10 +1102,10 @@ class AmanuensisApp:
         Thread-safe, schema-tolerant method to append a new turn to the transcript panel.
 
         Accepts both legacy and new field names:
-        - Legacy: speaker/speaker_id, text/content/utterance, start/timestamp, end/stop, is_phi/phi, turn_id/id
-        - New: speaker, text, start, end, is_phi, id
+        - Legacy: speaker/speaker_id, text/content/utterance, start/timestamp, end/stop, turn_id/id
+        - New: speaker, text, start, end, id
 
-        Normalizes to TranscriptPanel API format and maintains stable turn IDs for PHI approval.
+        Normalizes to TranscriptPanel API format and maintains stable turn IDs.
         """
         if not self.transcript_panel_actions.append_turn:
             self.logger.warning("_append_transcript_turn called before UI is fully initialized.")
@@ -1086,6 +1117,7 @@ class AmanuensisApp:
         speaker = turn.pop("speaker", None) or turn.pop("speaker_id", None) or turn.pop("spk", "UNKNOWN")
         role = turn.pop("role", None) or turn.pop("role_label", None)
         text = turn.pop("text", None) or turn.pop("content", "") or turn.pop("utterance", "")
+        # Legacy field compatibility - is_phi field no longer used but supported for compatibility
         is_phi = bool(turn.pop("is_phi", False) or turn.pop("phi", False))
         turn_id = turn.pop("turn_id", None) or turn.pop("id", None)
 
@@ -1093,7 +1125,7 @@ class AmanuensisApp:
         if isinstance(speaker, int):
             speaker = f"Speaker {speaker}"
 
-        # Synthesize stable turn ID if missing (for PHI approval path)
+        # Synthesize stable turn ID if missing
         if not turn_id:
             # Compute hash from (start_ts, speaker, first 24 chars of text)
             text_prefix = text[:24] if text else ""
@@ -1234,8 +1266,10 @@ class AmanuensisApp:
             print(f"[UI] Pane minsize constraints applied successfully")
         except Exception as e:
             # Fallback: If minsize isn't supported, panels will still resize manually via sash
-            print(f"[UI] Info: Pane minsize not supported on this platform ({e})")
-            print(f"[UI] Panels remain manually resizable via sash dividers")
+            # Log once with minimal noise (this is benign and expected on some platforms)
+            if not hasattr(self, '_minsize_warning_shown'):
+                print(f"[UI] Info: Pane minsize not supported; using manual sash sizing")
+                self._minsize_warning_shown = True
 
         # Grid the PanedWindow to row 1 (no padding for seamless dark mode)
         self.main_paned_window.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
@@ -1267,52 +1301,57 @@ class AmanuensisApp:
 
     def wire_insights_actions(self):
         """Wire up insights panel actions to existing insight generation logic"""
-        
-        def on_send_insight_handler(text: str):
+
+        # Populate template options from available templates
+        self.populate_insights_template_options()
+
+        def on_send_insight_handler(text: str, template=None):
             """Handle custom insight query from input box"""
             if self.VERBOSE_INSIGHTS:
-                print(f"INSIGHT_QUERY text_len={len(text)}")
-            
+                print(f"INSIGHT_QUERY text_len={len(text)} template={template}")
+
             # Use existing insight generation logic
             # Get window size from state
             window_minutes = self.insights_state.timeline_window_max
             window_seconds = window_minutes * 60
             transcript_text = self.get_recent_transcript(window_seconds)
-            
+
             if not transcript_text or len(transcript_text.strip()) < 50:
                 self.show_toast(f"Not enough transcript in last {window_minutes} min", 2000)
                 return
-            
-            # Generate insight using existing Gemini logic
+
+            # Generate insight using multi-provider system
             def run_insight_generation():
                 try:
                     prompt = f"{text}\n\nContext - Last {window_minutes} min of transcript:\n{transcript_text}"
 
-                    if hasattr(self, 'gemini_client') and self.gemini_client:
-                        response = self.gemini_client.models.generate_content(
-                            model=self.gemini_model,
-                            contents=prompt
-                        )
-                        insight_text = response.text
-                    else:
-                        insight_text = "Gemini API not configured"
+                    # Use multi-provider system
+                    success, insight_text = self.generate_with_provider(prompt)
+
+                    if not success:
+                        insight_text = f"Insight generation failed: {insight_text}"
 
                     # Record LLM usage (Phase 5b)
                     input_tokens, output_tokens, cost = self.estimate_tokens_and_cost(prompt, insight_text)
                     self.record_llm_usage('gemini-2.0-flash-exp', input_tokens, output_tokens, cost)
 
-                    # Create card and add to new panel
-                    card = {
-                        'title': 'Custom Query Response',
-                        'body': insight_text[:500],  # Limit length
-                        'tags': ['Custom Query'],
-                        'ts': datetime.now()
+                    # Add assistant message to chat (full text, no truncation)
+                    metadata = {
+                        'time_window': f'{window_minutes} min',
+                        'cost': cost
                     }
-
-                    # Add card via actions (already thread-safe via after())
-                    if self.insights_actions.add_insight_card:
+                    if self.insights_actions.add_chat_message:
+                        self.insights_actions.add_chat_message('assistant', insight_text, metadata)
+                    elif self.insights_actions.add_insight_card:
+                        # Fallback to card format
+                        card = {
+                            'title': 'Custom Query Response',
+                            'body': insight_text[:500],
+                            'tags': ['Custom Query'],
+                            'ts': datetime.now()
+                        }
                         self.insights_actions.add_insight_card(card)
-                        
+
                 except Exception as e:
                     print(f"Error generating insight: {e}")
                     card = {
@@ -1323,18 +1362,169 @@ class AmanuensisApp:
                     }
                     if self.insights_actions.add_insight_card:
                         self.insights_actions.add_insight_card(card)
-            
+
             # Run in background thread
             threading.Thread(target=run_insight_generation, daemon=True).start()
-        
+
+        def on_send_template_handler(template_name: str):
+            """Handle template-based analysis from dropdown"""
+            if self.VERBOSE_INSIGHTS:
+                print(f"TEMPLATE_QUERY template={template_name}")
+
+            # Find template ID from display name
+            template_id = None
+            template = None
+
+            if hasattr(self, 'analysis_templates'):
+                for tid, tmpl in self.analysis_templates.items():
+                    display_name = self._get_template_display_name(tmpl)
+                    if display_name == template_name:
+                        template_id = tid
+                        template = tmpl
+                        break
+
+            if not template:
+                self.show_toast(f"Template '{template_name}' not found", 2000)
+                return
+
+            # Get window size and transcript
+            window_minutes = self.insights_state.timeline_window_max
+            window_seconds = window_minutes * 60
+            transcript_text = self.get_recent_transcript(window_seconds)
+
+            if not transcript_text or len(transcript_text.strip()) < 50:
+                self.show_toast(f"Not enough transcript in last {window_minutes} min", 2000)
+                return
+
+            # Generate insight using template
+            def run_template_analysis():
+                try:
+                    # Prepare template variables
+                    template_variables = self.prepare_template_variables(transcript_text, window_minutes)
+
+                    # Substitute variables in template
+                    analysis_prompt = self.substitute_template_variables(template['prompt'], template_variables)
+
+                    if self.VERBOSE_INSIGHTS:
+                        print(f"[TEMPLATE] Using: {template['name']}")
+
+                    # Use multi-provider system
+                    success, insight_text = self.generate_with_provider(analysis_prompt)
+
+                    if not success:
+                        insight_text = f"Template analysis failed: {insight_text}"
+
+                    # Record LLM usage (Phase 5b)
+                    input_tokens, output_tokens, cost = self.estimate_tokens_and_cost(analysis_prompt, insight_text)
+                    self.record_llm_usage('gemini-2.0-flash-exp', input_tokens, output_tokens, cost)
+
+                    # Add assistant message with template metadata
+                    metadata = {
+                        'template': template['name'],
+                        'time_window': f'{window_minutes} min',
+                        'cost': cost
+                    }
+                    if self.insights_actions.add_chat_message:
+                        self.insights_actions.add_chat_message('assistant', insight_text, metadata)
+                    elif self.insights_actions.add_insight_card:
+                        # Fallback to card format
+                        card = {
+                            'title': f"{template['name']} - {window_minutes}min Analysis",
+                            'body': insight_text[:500],
+                            'tags': [f"Template: {template['name']}", f"{window_minutes}min window"],
+                            'ts': datetime.now(),
+                            'template_id': template_id
+                        }
+                        self.insights_actions.add_insight_card(card)
+
+                except Exception as e:
+                    print(f"Error generating template analysis: {e}")
+                    card = {
+                        'title': 'Template Analysis Error',
+                        'body': f"Failed to generate analysis using template '{template['name']}':\n\n{str(e)}",
+                        'tags': ['Error', 'Template Analysis'],
+                        'ts': datetime.now()
+                    }
+                    if self.insights_actions.add_insight_card:
+                        self.insights_actions.add_insight_card(card)
+
+            # Run in background thread
+            threading.Thread(target=run_template_analysis, daemon=True).start()
+
         def on_timeline_change_handler(value: float):
             """Handle timeline slider change"""
             if self.VERBOSE_INSIGHTS:
                 print(f"TIMELINE_CHANGE value={value}")
-            # Could implement timeline filtering here
-        
+            # Update analysis window for future queries
+            self.insights_state.timeline_window_max = int(value)
+
+        def on_preset_click_handler(preset_id: str):
+            """Handle preset button clicks using configured presets"""
+            if self.VERBOSE_INSIGHTS:
+                print(f"PRESET_CLICK id={preset_id}")
+
+            # Find preset by ID
+            preset = None
+            for p in self.insights_presets:
+                if p.get('id') == preset_id:
+                    preset = p
+                    break
+
+            if not preset:
+                print(f"[ERROR] Preset '{preset_id}' not found")
+                return
+
+            preset_label = preset.get('label', preset_id)
+            query = preset.get('query', 'Analyze the session.')
+            window_minutes = self.insights_state.timeline_window_max
+
+            # Add user message to chat
+            if self.insights_actions.add_chat_message:
+                self.insights_actions.add_chat_message('user', f"[{preset_label}] {query}")
+
+            # Get transcript
+            window_seconds = window_minutes * 60
+            transcript_text = self.get_recent_transcript(window_seconds)
+
+            if not transcript_text or len(transcript_text.strip()) < 50:
+                if self.insights_actions.add_chat_message:
+                    self.insights_actions.add_chat_message('assistant', f"Not enough transcript in last {window_minutes} min to analyze.")
+                return
+
+            # Generate insight in background
+            def run_preset_analysis():
+                try:
+                    prompt = f"{query}\n\nContext - Last {window_minutes} min of transcript:\n{transcript_text}"
+                    success, insight_text = self.generate_with_provider(prompt)
+
+                    if not success:
+                        insight_text = f"Analysis failed: {insight_text}"
+
+                    # Record usage
+                    input_tokens, output_tokens, cost = self.estimate_tokens_and_cost(prompt, insight_text)
+                    self.record_llm_usage('gemini-2.0-flash-exp', input_tokens, output_tokens, cost)
+
+                    # Add assistant response
+                    metadata = {
+                        'template': preset_label,
+                        'time_window': f'{window_minutes} min',
+                        'cost': cost
+                    }
+                    if self.insights_actions.add_chat_message:
+                        self.insights_actions.add_chat_message('assistant', insight_text, metadata)
+
+                except Exception as e:
+                    error_msg = f"Error analyzing with preset '{preset_label}': {str(e)}"
+                    print(error_msg)
+                    if self.insights_actions.add_chat_message:
+                        self.insights_actions.add_chat_message('assistant', error_msg)
+
+            threading.Thread(target=run_preset_analysis, daemon=True).start()
+
         # Assign handlers
         self.insights_actions.on_send_insight = on_send_insight_handler
+        self.insights_actions.on_send_template = on_send_template_handler
+        self.insights_actions.on_preset_click = on_preset_click_handler
         self.insights_actions.on_timeline_change = on_timeline_change_handler
 
         print("[OK] Insights actions wired successfully")
@@ -1727,7 +1917,7 @@ class AmanuensisApp:
         try:
             # Find all section frames and update them
             section_widgets = [
-                'device_section', 'recording_section', 'analysis_section', 'phi_section'
+                'device_section', 'recording_section', 'analysis_section'
             ]
             
             # Update any labels that might need theme updates
@@ -1852,7 +2042,7 @@ class AmanuensisApp:
                     text_color="white"
                 )
 
-            # Privacy Protection checkboxes removed (PHI detection removed)
+            # Privacy Protection settings
 
             print(f"[OK] Panel themes updated for {self.current_theme} mode with clinical accessibility")
 
@@ -3034,6 +3224,29 @@ class AmanuensisApp:
 
     def create_insight_controls_in_column(self):
         """Create insight generation controls in right column"""
+        # Show warning banner if insights are disabled
+        if not self.analysis_enabled:
+            warning_banner = ctk.CTkFrame(
+                self.analysis_content,
+                fg_color=self.colors.get('warning', '#f59e0b'),
+                corner_radius=6
+            )
+            warning_banner.pack(fill="x", pady=(0, 10), padx=5)
+
+            ctk.CTkLabel(
+                warning_banner,
+                text="⚠️ Insights Disabled: Missing API Key",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="white"
+            ).pack(side="left", padx=10, pady=8)
+
+            ctk.CTkLabel(
+                warning_banner,
+                text="Configure in Settings → Analysis",
+                font=ctk.CTkFont(size=9),
+                text_color="white"
+            ).pack(side="left", padx=(0, 10))
+
         controls_frame = ctk.CTkFrame(
             self.analysis_content,
             fg_color=self.colors.get('bg_accent', '#2d2d2d'),
@@ -3150,11 +3363,12 @@ class AmanuensisApp:
             height=35,
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color=self.colors.get('success', '#047857'),
-            hover_color=self.colors.get('success_hover', '#059669')
+            hover_color=self.colors.get('success_hover', '#059669'),
+            state="normal" if self.analysis_enabled else "disabled"
         )
         self.template_analysis_btn.pack(fill="x", padx=10, pady=(10, 5))
         
-        # Quick analysis buttons (legacy)
+        # Quick analysis buttons container
         quick_label = ctk.CTkLabel(
             controls_frame,
             text="Quick Analysis:",
@@ -3162,20 +3376,459 @@ class AmanuensisApp:
             text_color=self.colors.get('text_secondary', '#888888')
         )
         quick_label.pack(anchor="w", padx=10, pady=(10, 2))
-        
+
+        # Create button grid container
+        self.prompt_buttons_container = ctk.CTkFrame(controls_frame, fg_color="transparent")
+        self.prompt_buttons_container.pack(fill="x", padx=10, pady=(5, 0))
+
+        # Render prompt buttons in grid
         self.insight_buttons = {}
-        for prompt_id, prompt_data in self.insight_prompts.items():
-            btn = ctk.CTkButton(
-                controls_frame,
-                text=prompt_data['label'],
-                command=lambda pid=prompt_id: self.generate_insight_on_demand(pid),
-                height=26,
-                font=ctk.CTkFont(size=9),
+        self.render_prompt_buttons()
+
+    def render_prompt_buttons(self):
+        """
+        Render prompt buttons in a grid layout (4 columns).
+        Always renders buttons - disables with tooltip if insights_enabled=False.
+        """
+        try:
+            # Clear existing buttons
+            for widget in self.prompt_buttons_container.winfo_children():
+                widget.destroy()
+            self.insight_buttons.clear()
+
+            # Configure grid columns (4 columns, equal weight)
+            for col in range(4):
+                self.prompt_buttons_container.grid_columnconfigure(col, weight=1)
+
+            # Filter prompts by category (real-time synonyms: 'real-time', 'realtime', 'live')
+            real_time_categories = ['real-time', 'realtime', 'live', 'session']
+            filtered_prompts = {
+                pid: pdata for pid, pdata in self.insight_prompts.items()
+                if pdata.get('category', '').lower() in real_time_categories
+            }
+
+            # If no filtered prompts, show all
+            if not filtered_prompts:
+                filtered_prompts = self.insight_prompts
+
+            # Render buttons in grid
+            row, col = 0, 0
+            for prompt_id, prompt_data in filtered_prompts.items():
+                btn = ctk.CTkButton(
+                    self.prompt_buttons_container,
+                    text=prompt_data.get('label', prompt_id),
+                    command=lambda pid=prompt_id: self.on_prompt_button_click(pid),
+                    height=28,
+                    font=ctk.CTkFont(size=9),
+                    fg_color=self.colors.get('bg_accent', '#404040'),
+                    hover_color=self.colors.get('button_primary_hover', '#1E3A6B'),
+                    state="normal" if self.analysis_enabled else "disabled"
+                )
+                btn.grid(row=row, column=col, padx=2, pady=2, sticky="ew")
+
+                # Add tooltip for disabled buttons
+                if not self.analysis_enabled:
+                    self.create_tooltip(btn, "Add API key in Settings → Analysis")
+
+                self.insight_buttons[prompt_id] = btn
+
+                # Move to next position
+                col += 1
+                if col >= 4:
+                    col = 0
+                    row += 1
+
+            print(f"[UI] Rendered {len(self.insight_buttons)} prompt buttons in grid")
+
+        except Exception as e:
+            print(f"Error rendering prompt buttons: {e}")
+
+    def create_tooltip(self, widget, text):
+        """Create a simple tooltip for a widget"""
+        def on_enter(event):
+            tooltip = ctk.CTkToplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+
+            label = ctk.CTkLabel(
+                tooltip,
+                text=text,
                 fg_color=self.colors.get('bg_accent', '#404040'),
-                hover_color=self.colors.get('button_primary_hover', '#1E3A6B')
+                corner_radius=4,
+                padx=8,
+                pady=4
             )
-            btn.pack(fill="x", padx=10, pady=1)
-            self.insight_buttons[prompt_id] = btn
+            label.pack()
+
+            widget._tooltip = tooltip
+
+        def on_leave(event):
+            if hasattr(widget, '_tooltip'):
+                widget._tooltip.destroy()
+                del widget._tooltip
+
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+
+    def on_prompt_button_click(self, prompt_id):
+        """Handle prompt button click - run insight generation"""
+        # Early return if insights disabled
+        if not self.analysis_enabled:
+            self.set_status("Add API key in Settings → Analysis to enable insights")
+            return
+
+        try:
+            # Resolve segment (highlight or time-based)
+            seg_text, seg_label = self.resolve_segment()
+
+            if not seg_text or len(seg_text.strip()) < 50:
+                self.show_toast("Not enough transcript for analysis", 2000)
+                return
+
+            # Check if this is a template (from analysis_templates) or simple prompt (from insight_prompts)
+            template = None
+            prompt_text = None
+            prompt_name = prompt_id
+
+            # Try analysis_templates first (templates with variables)
+            if hasattr(self, 'analysis_templates') and prompt_id in self.analysis_templates:
+                template = self.analysis_templates[prompt_id]
+                prompt_name = template.get('name', prompt_id)
+
+                # Build variables dict
+                template_variables = self.prepare_template_variables(seg_text,
+                    self.insight_window_var.get() if hasattr(self, 'insight_window_var') else 5)
+
+                # Substitute variables in template body
+                prompt_text = self.substitute_template_variables(template.get('body', ''), template_variables)
+
+            # Try prompt_templates (Prompt Editor templates)
+            elif hasattr(self, 'prompt_templates') and prompt_id in self.prompt_templates:
+                template = self.prompt_templates[prompt_id]
+                prompt_name = template.get('name', prompt_id)
+
+                # Build variables dict
+                template_variables = self.prepare_template_variables(seg_text,
+                    self.insight_window_var.get() if hasattr(self, 'insight_window_var') else 5)
+
+                # Substitute variables in template body or prompt field
+                template_body = template.get('body') or template.get('prompt', '')
+                prompt_text = self.substitute_template_variables(template_body, template_variables)
+
+            # Fallback to insight_prompts (simple prompts)
+            elif hasattr(self, 'insight_prompts') and prompt_id in self.insight_prompts:
+                prompt_data = self.insight_prompts[prompt_id]
+                prompt_name = prompt_data.get('label', prompt_id)
+                window_minutes = self.insight_window_var.get() if hasattr(self, 'insight_window_var') else 5
+                prompt_text = f"{prompt_data['prompt']}\n\nTranscript ({seg_label}):\n{seg_text}"
+            else:
+                print(f"[ERROR] Prompt/template '{prompt_id}' not found")
+                self.show_toast(f"Prompt '{prompt_id}' not found", 2000)
+                return
+
+            if not prompt_text:
+                print(f"[ERROR] Could not generate prompt text for '{prompt_id}'")
+                self.show_toast("Error generating prompt", 2000)
+                return
+
+            # Disable button during processing
+            if prompt_id in self.insight_buttons:
+                original_text = self.insight_buttons[prompt_id].cget("text")
+                self.insight_buttons[prompt_id].configure(state="disabled", text="⏳")
+            else:
+                original_text = prompt_name
+
+            # Show status
+            self.set_status(f"Generating: {prompt_name}...")
+
+            # Run in background thread
+            def run_insight_call():
+                try:
+                    # Generate insight using active provider
+                    success, insight_text = self.generate_with_provider(prompt_text)
+
+                    if success:
+                        # Display result card on main thread
+                        def show_result():
+                            self.display_insight_card({
+                                'title': prompt_name,
+                                'segment_label': seg_label,
+                                'content': insight_text,
+                                'timestamp': datetime.now().strftime('%H:%M:%S')
+                            })
+
+                            # Re-enable button
+                            if prompt_id in self.insight_buttons:
+                                self.insight_buttons[prompt_id].configure(
+                                    state="normal" if self.analysis_enabled else "disabled",
+                                    text=original_text
+                                )
+
+                            self.set_status(f"Generated: {prompt_name}")
+
+                        self.root.after(0, show_result)
+
+                    else:
+                        # API call failed
+                        def show_error():
+                            messagebox.showerror("Error", f"Insight generation failed:\n{insight_text}")
+                            if prompt_id in self.insight_buttons:
+                                self.insight_buttons[prompt_id].configure(
+                                    state="normal" if self.analysis_enabled else "disabled",
+                                    text=original_text
+                                )
+                        self.root.after(0, show_error)
+
+                except Exception as e:
+                    print(f"[ERROR] Insight generation failed: {e}")
+                    def show_error():
+                        messagebox.showerror("Error", f"Insight generation failed:\n{str(e)}")
+                        if prompt_id in self.insight_buttons:
+                            self.insight_buttons[prompt_id].configure(
+                                state="normal" if self.analysis_enabled else "disabled",
+                                text=original_text
+                            )
+                        self.set_status("Error generating insight")
+                    self.root.after(0, show_error)
+
+            # Start background thread
+            threading.Thread(target=run_insight_call, daemon=True).start()
+
+        except Exception as e:
+            print(f"[ERROR] on_prompt_button_click: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"Failed to start insight:\n{str(e)}")
+
+    def display_insight_card(self, card_data):
+        """
+        Display an insight result as a card with copy/popup actions.
+
+        Args:
+            card_data: Dict with keys: title, segment_label, content, timestamp
+        """
+        try:
+            if not hasattr(self, 'insights_scrollable') or not self.insights_scrollable.winfo_exists():
+                print("[ERROR] Insights scrollable container not available")
+                return
+
+            # Remove empty state message if present
+            for widget in self.insights_scrollable.winfo_children():
+                # Check if this is the empty state placeholder
+                if isinstance(widget, ctk.CTkFrame):
+                    children = widget.winfo_children()
+                    if children and isinstance(children[0], ctk.CTkLabel):
+                        label_text = children[0].cget("text")
+                        if "No insights yet" in label_text or "Generate an insight" in label_text:
+                            widget.destroy()
+
+            # Create card frame
+            card = ctk.CTkFrame(
+                self.insights_scrollable,
+                fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
+                corner_radius=6,
+                border_width=1,
+                border_color=self.colors.get('border_subtle', '#404040')
+            )
+
+            # Header section
+            header = ctk.CTkFrame(card, fg_color="transparent")
+            header.pack(fill="x", padx=12, pady=(12, 8))
+
+            # Title
+            title_text = f"{card_data.get('title', 'Insight')} • {card_data.get('segment_label', '')} • {card_data.get('timestamp', '')}"
+            title_label = ctk.CTkLabel(
+                header,
+                text=title_text,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color=self.colors.get('text_secondary', '#888888'),
+                anchor="w"
+            )
+            title_label.pack(side="left", fill="x", expand=True)
+
+            # Body section (read-only text)
+            content_text = card_data.get('content', 'No content')
+
+            # Use CTkTextbox for scrollable, read-only text
+            text_widget = ctk.CTkTextbox(
+                card,
+                height=120,
+                wrap="word",
+                font=ctk.CTkFont(size=11),
+                fg_color=self.colors.get('bg_primary', '#1a1a1a'),
+                border_width=0,
+                activate_scrollbars=True
+            )
+            text_widget.pack(fill="both", padx=12, pady=(0, 8))
+            text_widget.insert("1.0", content_text)
+            text_widget.configure(state="disabled")  # Make read-only
+
+            # Button section
+            button_frame = ctk.CTkFrame(card, fg_color="transparent")
+            button_frame.pack(fill="x", padx=12, pady=(0, 12))
+
+            # Copy button
+            copy_btn = ctk.CTkButton(
+                button_frame,
+                text="📋 Copy",
+                width=80,
+                height=28,
+                font=ctk.CTkFont(size=10),
+                fg_color=self.colors.get('bg_accent', '#404040'),
+                hover_color=self.colors.get('button_primary_hover', '#1E3A6B'),
+                command=lambda: self.copy_insight_to_clipboard(content_text)
+            )
+            copy_btn.pack(side="left", padx=(0, 5))
+
+            # Open in Window button
+            open_btn = ctk.CTkButton(
+                button_frame,
+                text="🗗 Open",
+                width=80,
+                height=28,
+                font=ctk.CTkFont(size=10),
+                fg_color=self.colors.get('bg_accent', '#404040'),
+                hover_color=self.colors.get('button_primary_hover', '#1E3A6B'),
+                command=lambda: self.open_insight_popup(card_data)
+            )
+            open_btn.pack(side="left")
+
+            # Pack card at the top (most recent first)
+            children = self.insights_scrollable.winfo_children()
+            if children:
+                card.pack(fill="x", pady=(0, 5), before=children[0])
+            else:
+                card.pack(fill="x", pady=(0, 5))
+
+            # Limit to 10 cards (remove oldest)
+            cards = self.insights_scrollable.winfo_children()
+            if len(cards) > 10:
+                cards[-1].destroy()
+
+            print(f"[UI] Displayed insight card: {card_data.get('title', 'Unnamed')}")
+
+        except Exception as e:
+            print(f"[ERROR] display_insight_card: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def copy_insight_to_clipboard(self, text):
+        """Copy insight text to clipboard and show toast"""
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.show_toast("Copied to clipboard", 1500)
+        except Exception as e:
+            print(f"[ERROR] copy_insight_to_clipboard: {e}")
+            messagebox.showerror("Error", f"Failed to copy to clipboard:\n{str(e)}")
+
+    def open_insight_popup(self, card_data):
+        """
+        Open a full-screen popup window to view insight in detail.
+
+        Args:
+            card_data: Dict with keys: title, segment_label, content, timestamp
+        """
+        try:
+            # Create toplevel window
+            popup = ctk.CTkToplevel(self.root)
+            popup.title(f"Insight: {card_data.get('title', 'Unnamed')}")
+            popup.geometry("800x600")
+
+            # Center the window
+            popup.update_idletasks()
+            width = popup.winfo_width()
+            height = popup.winfo_height()
+            x = (popup.winfo_screenwidth() // 2) - (width // 2)
+            y = (popup.winfo_screenheight() // 2) - (height // 2)
+            popup.geometry(f"{width}x{height}+{x}+{y}")
+
+            # Make it resizable
+            popup.resizable(True, True)
+
+            # Header section
+            header_frame = ctk.CTkFrame(popup, fg_color=self.colors.get('bg_accent', '#2d2d2d'), corner_radius=0)
+            header_frame.pack(fill="x", padx=0, pady=0)
+
+            # Title and metadata
+            title_text = f"{card_data.get('title', 'Insight')}"
+            meta_text = f"{card_data.get('segment_label', '')} • {card_data.get('timestamp', '')}"
+
+            title_label = ctk.CTkLabel(
+                header_frame,
+                text=title_text,
+                font=ctk.CTkFont(size=16, weight="bold"),
+                text_color=self.colors.get('text_primary', '#ffffff'),
+                anchor="w"
+            )
+            title_label.pack(anchor="w", padx=20, pady=(15, 5))
+
+            meta_label = ctk.CTkLabel(
+                header_frame,
+                text=meta_text,
+                font=ctk.CTkFont(size=11),
+                text_color=self.colors.get('text_secondary', '#888888'),
+                anchor="w"
+            )
+            meta_label.pack(anchor="w", padx=20, pady=(0, 15))
+
+            # Content section (scrollable textbox)
+            content_frame = ctk.CTkFrame(popup, fg_color=self.colors.get('bg_primary', '#1a1a1a'))
+            content_frame.pack(fill="both", expand=True, padx=20, pady=(10, 0))
+
+            text_widget = ctk.CTkTextbox(
+                content_frame,
+                wrap="word",
+                font=ctk.CTkFont(size=12),
+                fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
+                border_width=1,
+                border_color=self.colors.get('border_subtle', '#404040'),
+                activate_scrollbars=True
+            )
+            text_widget.pack(fill="both", expand=True, padx=0, pady=0)
+            text_widget.insert("1.0", card_data.get('content', 'No content'))
+            text_widget.configure(state="disabled")  # Make read-only
+
+            # Button section
+            button_frame = ctk.CTkFrame(popup, fg_color="transparent")
+            button_frame.pack(fill="x", padx=20, pady=15)
+
+            # Copy button
+            copy_btn = ctk.CTkButton(
+                button_frame,
+                text="📋 Copy to Clipboard",
+                width=150,
+                height=35,
+                font=ctk.CTkFont(size=12),
+                fg_color=self.colors.get('primary', '#2B5AA0'),
+                hover_color=self.colors.get('accent', '#1E3A6B'),
+                command=lambda: self.copy_insight_to_clipboard(card_data.get('content', ''))
+            )
+            copy_btn.pack(side="left", padx=(0, 10))
+
+            # Close button
+            close_btn = ctk.CTkButton(
+                button_frame,
+                text="Close",
+                width=100,
+                height=35,
+                font=ctk.CTkFont(size=12),
+                fg_color=self.colors.get('bg_accent', '#404040'),
+                hover_color=self.colors.get('button_primary_hover', '#1E3A6B'),
+                command=popup.destroy
+            )
+            close_btn.pack(side="left")
+
+            # Focus the window
+            popup.focus()
+
+            print(f"[UI] Opened insight popup: {card_data.get('title', 'Unnamed')}")
+
+        except Exception as e:
+            print(f"[ERROR] open_insight_popup: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"Failed to open insight popup:\n{str(e)}")
 
     def create_insight_chat_input(self):
         """Create insight chat input box beneath buttons"""
@@ -3198,16 +3851,18 @@ class AmanuensisApp:
 
         self.insight_chat_entry = ctk.CTkEntry(
             input_frame,
-            placeholder_text="Ask about the session...",
+            placeholder_text="Ask about the session..." if self.analysis_enabled else "API key required",
             height=32,
             font=ctk.CTkFont(size=10),
             fg_color=self.colors.get('input_background', '#1a1a1a'),
-            border_color=self.colors.get('border_subtle', '#404040')
+            border_color=self.colors.get('border_subtle', '#404040'),
+            state="normal" if self.analysis_enabled else "disabled"
         )
         self.insight_chat_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
-        self.insight_chat_entry.bind("<Return>", lambda e: self.send_chat_insight())
+        if self.analysis_enabled:
+            self.insight_chat_entry.bind("<Return>", lambda e: self.send_chat_insight())
 
-        ctk.CTkButton(
+        self.insight_chat_send_btn = ctk.CTkButton(
             input_frame,
             text="Send",
             width=60,
@@ -3215,11 +3870,17 @@ class AmanuensisApp:
             font=ctk.CTkFont(size=10, weight="bold"),
             command=self.send_chat_insight,
             fg_color=self.colors.get('primary', '#2B5AA0'),
-            hover_color=self.colors.get('accent', '#1E3A6B')
-        ).pack(side="right")
+            hover_color=self.colors.get('accent', '#1E3A6B'),
+            state="normal" if self.analysis_enabled else "disabled"
+        )
+        self.insight_chat_send_btn.pack(side="right")
 
     def generate_template_analysis(self):
         """Generate analysis using the selected template with variable substitution"""
+        # Early return if insights are disabled
+        if not self.analysis_enabled:
+            return
+
         try:
             # Check if template is selected
             if not hasattr(self, 'selected_template_id') or not self.selected_template_id:
@@ -3255,17 +3916,14 @@ class AmanuensisApp:
                     
                     print(f"[ANALYSIS] Using template: {template['name']}")
                     print(f"[ANALYSIS] Variables substituted: {list(template_variables.keys())}")
-                    
-                    # Generate analysis using Gemini
-                    if hasattr(self, 'gemini_client') and self.gemini_client:
-                        response = self.gemini_client.models.generate_content(
-                            model=self.gemini_model,
-                            contents=analysis_prompt
-                        )
-                        insight_text = response.text
-                    else:
-                        insight_text = "Analysis generation not available - Gemini client not configured"
-                    
+
+                    # Generate analysis using multi-provider system
+                    success, insight_text = self.generate_with_provider(analysis_prompt)
+
+                    if not success:
+                        insight_text = f"Analysis generation failed: {insight_text}"
+                        print(f"[ERROR] {insight_text}")
+
                     # Create insight card with template metadata
                     card = {
                         'title': f"{template['name']} - {window_minutes}min Analysis",
@@ -3389,6 +4047,10 @@ class AmanuensisApp:
     
     def send_chat_insight(self):
         """Send custom insight query from chat input"""
+        # Early return if insights are disabled
+        if not self.analysis_enabled:
+            return
+
         query = self.insight_chat_entry.get().strip()
         if not query:
             return
@@ -3410,14 +4072,15 @@ class AmanuensisApp:
                 try:
                     prompt = f"{query}\n\nContext - Last {window_minutes} min of transcript:\n{transcript_text}"
 
-                    if hasattr(self, 'gemini_client') and self.gemini_client:
-                        response = self.gemini_client.models.generate_content(
-                            model=self.gemini_model,
-                            contents=prompt
-                        )
-                        insight_text = response.text
-                    else:
-                        insight_text = "Gemini API not configured"
+                    # Use multi-provider system
+                    success, insight_text = self.generate_with_provider(prompt)
+
+                    if not success:
+                        error_msg = f"Chat insight failed: {insight_text}"
+                        print(error_msg)
+                        self.root.after(0, lambda: self.show_toast(error_msg, 3000))
+                        return
+
                     timestamp = time.strftime("%H:%M:%S")
 
                     # Create card with query as title
@@ -3682,7 +4345,7 @@ class AmanuensisApp:
             "Professional features:\n"
             "• HIPAA-compliant local processing\n"
             "• No audio data leaves this device\n"
-            "• PHI detection and review available\n"
+            "• Privacy-focused transcription\n"
             "• Therapy analysis with Claude AI\n\n"
             "Ready for professional therapy session transcription."
         )
@@ -3939,7 +4602,7 @@ class AmanuensisApp:
     def update_session_metrics(self):
         """Update session metrics in header and analysis panel (DEPRECATED)"""
         try:
-            # REMOVED: PHI queue count
+            # Session metrics display
             # REMOVED: duration_label (using bottom status bar)
             # REMOVED: analysis_count_label, cost_label (not using legacy metrics)
             pass
@@ -4003,7 +4666,7 @@ class AmanuensisApp:
         self.thread_safe_ui_update(self.show_risk_alert, alert_data)
 
     # ===================================================================
-    # INTEGRATED ANALYSIS AND PHI PROCESSING
+    # INTEGRATED ANALYSIS PROCESSING
     # ===================================================================
 
     def process_analysis_result(self, result):
@@ -4095,22 +4758,18 @@ class AmanuensisApp:
     def show_settings_modal(self):
         """Show comprehensive settings modal"""
         try:
-            # Force dark mode for clinical settings - ensure self.current_theme is properly set
-            if not hasattr(self, 'current_theme') or self.current_theme is None:
-                self.current_theme = 'dark'
-                print("WARNING: current_theme was None, forced to 'dark'")
-            
-            # Double-check theme is actually dark for clinical use
-            if self.current_theme != 'dark':
-                print(f"WARNING: Theme was '{self.current_theme}', forcing to 'dark' for clinical settings")
-                self.current_theme = 'dark'
-            
-            is_dark = (self.current_theme == 'dark')
-            ctk.set_appearance_mode("dark" if is_dark else "light")
-            
+            # Get actual current appearance mode from CustomTkinter
+            actual_mode = ctk.get_appearance_mode()  # Returns "Dark" or "Light"
+            actual_mode_lower = actual_mode.lower()
+
+            # Sync self.current_theme with actual mode
+            self.current_theme = actual_mode_lower
+
+            is_dark = (actual_mode_lower == 'dark')
+
             # Debug logging
-            print(f"SETTINGS themed: mode={'dark' if is_dark else 'light'} (current_theme={self.current_theme})")
-            print(f"CustomTkinter appearance mode set to: {'dark' if is_dark else 'light'}")
+            if self.VERBOSE_UI:
+                print(f"[SETTINGS] Opening with theme: {actual_mode_lower} (from CTk: {actual_mode})")
 
             # IMPORTANT: Use COLOR TUPLES (light, dark) for automatic theme switching
             # Per CustomTkinter docs: fg_color accepts tuple: (light_color, dark_color)
@@ -4135,10 +4794,6 @@ class AmanuensisApp:
             x = (self.settings_window.winfo_screenwidth() // 2) - (800 // 2)
             y = (self.settings_window.winfo_screenheight() // 2) - (600 // 2)
             self.settings_window.geometry(f"800x600+{x}+{y}")
-
-            # Diagnostic logging
-            if self.VERBOSE_UI:
-                print(f"SETTINGS themed: mode={'dark' if is_dark else 'light'}")
 
             # Main container
             main_frame = ctk.CTkFrame(self.settings_window, fg_color=BG2)
@@ -4169,15 +4824,19 @@ class AmanuensisApp:
             self.settings_tabview.pack(fill="both", expand=True)
 
             # Create tabs
+            self.settings_tabview.add("API Keys")
             self.settings_tabview.add("Dashboard")
             self.settings_tabview.add("Analysis")
+            self.settings_tabview.add("Insights Presets")
             self.settings_tabview.add("Prompt Editor")
             self.settings_tabview.add("Audio")
             self.settings_tabview.add("Export")
 
             # Populate tabs
+            self.create_api_keys_tab()
             self.create_dashboard_settings_tab()
             self.create_analysis_settings_tab()
+            self.create_insights_presets_tab()
             self.create_prompt_editor_tab()
             self.create_audio_settings_tab()
             self.create_export_settings_tab()
@@ -4190,36 +4849,39 @@ class AmanuensisApp:
             button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
             button_frame.pack(fill="x", pady=(20, 0))
 
-            # Apply button
+            # Apply button (uses tuples for theme compatibility)
             apply_button = ctk.CTkButton(
                 button_frame,
                 text="Apply Settings",
                 command=self.apply_settings,
-                fg_color=self.colors.get('success', '#047857'),
-                hover_color=self.colors.get('primary', '#1e40af'),
-                width=120
+                fg_color=("#047857", "#10b981"),  # Light green, Dark green
+                hover_color=("#059669", "#059669"),
+                width=120,
+                text_color=("white", "white")
             )
             apply_button.pack(side="right", padx=(10, 0))
 
-            # Cancel button
+            # Cancel button (uses tuples for theme compatibility)
             cancel_button = ctk.CTkButton(
                 button_frame,
                 text="Cancel",
                 command=self.close_settings_modal,
-                fg_color=self.colors.get('danger', '#dc2626'),
-                hover_color="#dc3545",
-                width=120
+                fg_color=("#dc2626", "#b91c1c"),  # Light red, Dark red
+                hover_color=("#dc3545", "#dc3545"),
+                width=120,
+                text_color=("white", "white")
             )
             cancel_button.pack(side="right", padx=5)
 
-            # Reset button
+            # Reset button (uses tuples for theme compatibility)
             reset_button = ctk.CTkButton(
                 button_frame,
                 text="Reset to Defaults",
                 command=self.reset_to_defaults,
-                fg_color=self.colors.get('warning', '#b45309'),
-                hover_color="#e0a800",
-                width=140
+                fg_color=("#b45309", "#f59e0b"),  # Light orange, Dark orange
+                hover_color=("#e0a800", "#e0a800"),
+                width=140,
+                text_color=("white", "white")
             )
             reset_button.pack(side="left")
 
@@ -4252,7 +4914,7 @@ class AmanuensisApp:
                 return
 
             # bg_color_tuple should be (light_color, dark_color) for automatic theme switching
-            for tab_name in ["Dashboard", "Analysis", "Prompt Editor", "PHI Detection", "Audio", "Export"]:
+            for tab_name in ["API Keys", "Dashboard", "Analysis", "Prompt Editor", "Audio", "Export"]:
                 try:
                     tab = self.settings_tabview.tab(tab_name)
                     if tab and tab.winfo_exists():
@@ -4263,6 +4925,503 @@ class AmanuensisApp:
         except Exception as e:
             if self.VERBOSE_UI:
                 print(f"Error in _configure_settings_tabs: {e}")
+
+    def create_api_keys_tab(self):
+        """Create API Keys configuration tab with support for multiple providers"""
+        tab = self.settings_tabview.tab("API Keys")
+
+        # Get theme colors
+        is_dark = (self.current_theme == 'dark')
+        bg_color_tuple = ("#ffffff", "#1a1a1a")
+        bg_accent_tuple = ("#e9ecef", "#404040")
+
+        # Scrollable frame for all providers
+        scroll_frame = ctk.CTkScrollableFrame(
+            tab,
+            fg_color=bg_color_tuple,
+            scrollbar_button_color=self.colors.get('primary', '#5b9cff'),
+            scrollbar_button_hover_color=self.colors.get('accent', '#4a8bf8')
+        )
+        scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Header
+        header = ctk.CTkLabel(
+            scroll_frame,
+            text="AI Provider API Keys",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
+        )
+        header.pack(anchor="w", pady=(0, 5))
+
+        info_label = ctk.CTkLabel(
+            scroll_frame,
+            text="Configure API keys for AI-powered insights. Keys are stored locally in your settings file.",
+            font=ctk.CTkFont(size=10),
+            text_color=self.colors.get('text_muted', '#9CA3AF'),
+            wraplength=650,
+            justify="left"
+        )
+        info_label.pack(anchor="w", pady=(0, 10))
+
+        # Active provider selection
+        provider_select_frame = ctk.CTkFrame(scroll_frame, fg_color=bg_accent_tuple, corner_radius=8)
+        provider_select_frame.pack(fill="x", pady=(0, 20))
+
+        ctk.CTkLabel(
+            provider_select_frame,
+            text="Active Provider:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
+        ).pack(anchor="w", padx=15, pady=(15, 5))
+
+        ctk.CTkLabel(
+            provider_select_frame,
+            text="Select which AI provider to use for insights generation",
+            font=ctk.CTkFont(size=10),
+            text_color=self.colors.get('text_muted', '#9CA3AF')
+        ).pack(anchor="w", padx=15, pady=(0, 10))
+
+        # Provider selector
+        if not hasattr(self, 'active_provider'):
+            self.active_provider = 'gemini'
+
+        self.active_provider_var = ctk.StringVar(value=self.active_provider)
+
+        provider_selector = ctk.CTkComboBox(
+            provider_select_frame,
+            values=['gemini', 'claude', 'openai', 'openrouter'],
+            variable=self.active_provider_var,
+            width=400,
+            fg_color=self.colors.get('input_background', '#1a1a1a' if is_dark else '#ffffff'),
+            button_color=self.colors.get('primary', '#5b9cff'),
+            button_hover_color=self.colors.get('accent', '#4a8bf8'),
+            border_color=self.colors.get('border_defined', '#2b2b2b' if is_dark else '#adb5bd'),
+            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
+        )
+        provider_selector.pack(anchor="w", padx=30, pady=(0, 15))
+
+        # Initialize API key variables if they don't exist
+        if not hasattr(self, 'api_keys'):
+            self.api_keys = {
+                'gemini': '',
+                'claude': '',
+                'openai': '',
+                'openrouter': ''
+            }
+
+        # Gemini Section
+        self._create_provider_section(
+            scroll_frame,
+            bg_accent_tuple,
+            is_dark,
+            provider_id='gemini',
+            provider_name='Google Gemini',
+            placeholder='sk-...',
+            docs_url='https://ai.google.dev/',
+            models=['gemini-2.0-flash-001', 'gemini-1.5-pro-latest', 'gemini-1.5-flash-latest']
+        )
+
+        # Claude Section
+        self._create_provider_section(
+            scroll_frame,
+            bg_accent_tuple,
+            is_dark,
+            provider_id='claude',
+            provider_name='Anthropic Claude',
+            placeholder='sk-ant-...',
+            docs_url='https://console.anthropic.com/',
+            models=['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307']
+        )
+
+        # OpenAI Section
+        self._create_provider_section(
+            scroll_frame,
+            bg_accent_tuple,
+            is_dark,
+            provider_id='openai',
+            provider_name='OpenAI',
+            placeholder='sk-...',
+            docs_url='https://platform.openai.com/api-keys',
+            models=['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo']
+        )
+
+        # OpenRouter Section
+        self._create_provider_section(
+            scroll_frame,
+            bg_accent_tuple,
+            is_dark,
+            provider_id='openrouter',
+            provider_name='OpenRouter',
+            placeholder='sk-or-...',
+            docs_url='https://openrouter.ai/keys',
+            models=['auto', 'anthropic/claude-3.5-sonnet', 'openai/gpt-4-turbo', 'meta-llama/llama-3.1-70b-instruct']
+        )
+
+    def _create_provider_section(self, parent, bg_accent_tuple, is_dark, provider_id, provider_name, placeholder, docs_url, models):
+        """Create a provider API key section with input, test, and model selection"""
+        # Provider frame
+        provider_frame = ctk.CTkFrame(parent, fg_color=bg_accent_tuple, corner_radius=8)
+        provider_frame.pack(fill="x", pady=(0, 15))
+
+        # Header
+        header_frame = ctk.CTkFrame(provider_frame, fg_color="transparent")
+        header_frame.pack(fill="x", padx=15, pady=(15, 10))
+
+        title = ctk.CTkLabel(
+            header_frame,
+            text=provider_name,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
+        )
+        title.pack(side="left")
+
+        # Get API key button
+        docs_btn = ctk.CTkButton(
+            header_frame,
+            text="Get API Key →",
+            width=100,
+            height=24,
+            font=ctk.CTkFont(size=9),
+            fg_color="transparent",
+            hover_color=self.colors.get('bg_secondary', '#2d2d2d'),
+            border_width=1,
+            border_color=self.colors.get('border_subtle', '#404040'),
+            command=lambda url=docs_url: self._open_url(url)
+        )
+        docs_btn.pack(side="right")
+
+        # API Key input with show/hide
+        key_frame = ctk.CTkFrame(provider_frame, fg_color="transparent")
+        key_frame.pack(fill="x", padx=30, pady=(0, 10))
+
+        ctk.CTkLabel(
+            key_frame,
+            text="API Key:",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
+        ).pack(anchor="w", pady=(0, 5))
+
+        input_row = ctk.CTkFrame(key_frame, fg_color="transparent")
+        input_row.pack(fill="x")
+
+        # Create entry with variable
+        key_var = ctk.StringVar(value=self.api_keys.get(provider_id, ''))
+        setattr(self, f'{provider_id}_key_var', key_var)  # Store reference
+
+        key_entry = ctk.CTkEntry(
+            input_row,
+            placeholder_text=placeholder,
+            show="•",
+            width=400,
+            height=32,
+            textvariable=key_var,
+            fg_color=self.colors.get('input_background', '#1a1a1a' if is_dark else '#ffffff'),
+            border_color=self.colors.get('border_defined', '#2b2b2b' if is_dark else '#adb5bd'),
+            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
+        )
+        key_entry.pack(side="left", padx=(0, 5))
+        setattr(self, f'{provider_id}_key_entry', key_entry)  # Store reference
+
+        # Show/Hide toggle
+        show_var = ctk.BooleanVar(value=False)
+        def toggle_show():
+            if show_var.get():
+                key_entry.configure(show="")
+                show_btn.configure(text="👁️")
+            else:
+                key_entry.configure(show="•")
+                show_btn.configure(text="👁️‍🗨️")
+
+        show_btn = ctk.CTkButton(
+            input_row,
+            text="👁️‍🗨️",
+            width=40,
+            height=32,
+            fg_color=self.colors.get('bg_secondary', '#2d2d2d'),
+            hover_color=self.colors.get('bg_accent', '#404040'),
+            command=lambda: [show_var.set(not show_var.get()), toggle_show()]
+        )
+        show_btn.pack(side="left", padx=(0, 5))
+
+        # Test button with status
+        test_btn = ctk.CTkButton(
+            input_row,
+            text="Test",
+            width=70,
+            height=32,
+            fg_color=self.colors.get('primary', '#2B5AA0'),
+            hover_color=self.colors.get('accent', '#1E3A6B'),
+            command=lambda: self._test_api_key(provider_id, key_var.get(), test_btn)
+        )
+        test_btn.pack(side="left")
+
+        # Model selection
+        model_frame = ctk.CTkFrame(provider_frame, fg_color="transparent")
+        model_frame.pack(fill="x", padx=30, pady=(0, 15))
+
+        ctk.CTkLabel(
+            model_frame,
+            text="Default Model:",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
+        ).pack(anchor="w", pady=(0, 5))
+
+        # Create model variable
+        model_var = ctk.StringVar(value=models[0] if models else '')
+        setattr(self, f'{provider_id}_model_var', model_var)
+
+        model_dropdown = ctk.CTkComboBox(
+            model_frame,
+            values=models,
+            variable=model_var,
+            width=400,
+            fg_color=self.colors.get('input_background', '#1a1a1a' if is_dark else '#ffffff'),
+            button_color=self.colors.get('primary', '#5b9cff'),
+            button_hover_color=self.colors.get('accent', '#4a8bf8'),
+            border_color=self.colors.get('border_defined', '#2b2b2b' if is_dark else '#adb5bd'),
+            text_color=self.colors.get('text_primary', '#e6e6e6' if is_dark else '#212529')
+        )
+        model_dropdown.pack(anchor="w")
+
+    def _open_url(self, url):
+        """Open URL in default browser"""
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception as e:
+            print(f"Error opening URL: {e}")
+
+    def _test_api_key(self, provider_id, api_key, button):
+        """Test API key for specified provider"""
+        if not api_key or api_key.strip() == '':
+            messagebox.showwarning("No API Key", f"Please enter an API key for {provider_id}")
+            return
+
+        # Disable button and show testing state
+        button.configure(text="Testing...", state="disabled")
+
+        def test_in_background():
+            try:
+                success = False
+                message = ""
+
+                if provider_id == 'gemini':
+                    success, message = self._test_gemini(api_key)
+                elif provider_id == 'claude':
+                    success, message = self._test_claude(api_key)
+                elif provider_id == 'openai':
+                    success, message = self._test_openai(api_key)
+                elif provider_id == 'openrouter':
+                    success, message = self._test_openrouter(api_key)
+
+                # Update UI on main thread
+                def show_result():
+                    button.configure(text="✓ Success" if success else "✗ Failed", state="normal")
+                    if success:
+                        button.configure(fg_color=self.colors.get('success', '#047857'))
+                        messagebox.showinfo("Success", message)
+                    else:
+                        button.configure(fg_color=self.colors.get('danger', '#dc2626'))
+                        messagebox.showerror("Test Failed", message)
+
+                    # Reset button after 3 seconds
+                    self.root.after(3000, lambda: button.configure(
+                        text="Test",
+                        fg_color=self.colors.get('primary', '#2B5AA0')
+                    ))
+
+                self.root.after(0, show_result)
+
+            except Exception as e:
+                def show_error():
+                    button.configure(text="✗ Error", state="normal", fg_color=self.colors.get('danger', '#dc2626'))
+                    messagebox.showerror("Error", f"Test error: {str(e)}")
+                    self.root.after(3000, lambda: button.configure(
+                        text="Test",
+                        fg_color=self.colors.get('primary', '#2B5AA0')
+                    ))
+                self.root.after(0, show_error)
+
+        # Run test in background thread
+        threading.Thread(target=test_in_background, daemon=True).start()
+
+    def _test_gemini(self, api_key):
+        """Test Gemini API key"""
+        try:
+            if not GEMINI_AVAILABLE:
+                return False, "Gemini SDK not installed. Run: pip install google-genai"
+
+            import google.genai as genai_test
+            client = genai_test.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model='gemini-2.0-flash-001',
+                contents='Hello'
+            )
+            return True, f"✅ Gemini API connected successfully!\n\nResponse: {response.text[:50]}..."
+        except Exception as e:
+            return False, f"Gemini API test failed:\n{str(e)}"
+
+    def _test_claude(self, api_key):
+        """Test Claude API key"""
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            message = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "Hello"}]
+            )
+            return True, f"✅ Claude API connected successfully!\n\nResponse: {message.content[0].text}"
+        except ImportError:
+            return False, "Anthropic SDK not installed. Run: pip install anthropic"
+        except Exception as e:
+            return False, f"Claude API test failed:\n{str(e)}"
+
+    def _test_openai(self, api_key):
+        """Test OpenAI API key"""
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "Hello"}],
+                max_tokens=10
+            )
+            return True, f"✅ OpenAI API connected successfully!\n\nResponse: {response.choices[0].message.content}"
+        except ImportError:
+            return False, "OpenAI SDK not installed. Run: pip install openai"
+        except Exception as e:
+            return False, f"OpenAI API test failed:\n{str(e)}"
+
+    def _test_openrouter(self, api_key):
+        """Test OpenRouter API key"""
+        try:
+            from openai import OpenAI
+            client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key
+            )
+            response = client.chat.completions.create(
+                model="openai/gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "Hello"}],
+                max_tokens=10
+            )
+            return True, f"✅ OpenRouter API connected successfully!\n\nResponse: {response.choices[0].message.content}"
+        except ImportError:
+            return False, "OpenAI SDK not installed (required for OpenRouter). Run: pip install openai"
+        except Exception as e:
+            return False, f"OpenRouter API test failed:\n{str(e)}"
+
+    def generate_with_provider(self, prompt_text):
+        """
+        Generate text using the active AI provider.
+
+        Args:
+            prompt_text: The prompt to send to the AI
+
+        Returns:
+            tuple: (success: bool, response_text: str)
+        """
+        try:
+            provider = getattr(self, 'active_provider', 'gemini')
+            print(f"[AI] Generating with provider: {provider}")
+
+            if not hasattr(self, 'api_keys') or not self.api_keys.get(provider):
+                return False, f"No API key configured for {provider}. Please add it in Settings → API Keys."
+
+            if provider == 'gemini':
+                return self._generate_gemini(prompt_text)
+            elif provider == 'claude':
+                return self._generate_claude(prompt_text)
+            elif provider == 'openai':
+                return self._generate_openai(prompt_text)
+            elif provider == 'openrouter':
+                return self._generate_openrouter(prompt_text)
+            else:
+                return False, f"Unknown provider: {provider}"
+
+        except Exception as e:
+            print(f"[ERROR] generate_with_provider: {e}")
+            return False, f"Generation error: {str(e)}"
+
+    def _generate_gemini(self, prompt_text):
+        """Generate text using Gemini"""
+        try:
+            if not GEMINI_AVAILABLE:
+                return False, "Gemini SDK not installed. Run: pip install google-genai"
+
+            import google.genai as genai_call
+            api_key = self.api_keys.get('gemini')
+            model = getattr(self, 'gemini_model', 'gemini-2.0-flash-001')
+
+            client = genai_call.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt_text
+            )
+            return True, response.text
+        except Exception as e:
+            return False, f"Gemini error: {str(e)}"
+
+    def _generate_claude(self, prompt_text):
+        """Generate text using Claude"""
+        try:
+            import anthropic
+            api_key = self.api_keys.get('claude')
+            model = getattr(self, 'claude_model', 'claude-3-5-sonnet-20241022')
+
+            client = anthropic.Anthropic(api_key=api_key)
+            message = client.messages.create(
+                model=model,
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt_text}]
+            )
+            return True, message.content[0].text
+        except ImportError:
+            return False, "Anthropic SDK not installed. Run: pip install anthropic"
+        except Exception as e:
+            return False, f"Claude error: {str(e)}"
+
+    def _generate_openai(self, prompt_text):
+        """Generate text using OpenAI"""
+        try:
+            from openai import OpenAI
+            api_key = self.api_keys.get('openai')
+            model = getattr(self, 'openai_model', 'gpt-4o')
+
+            client = OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt_text}],
+                max_tokens=2048
+            )
+            return True, response.choices[0].message.content
+        except ImportError:
+            return False, "OpenAI SDK not installed. Run: pip install openai"
+        except Exception as e:
+            return False, f"OpenAI error: {str(e)}"
+
+    def _generate_openrouter(self, prompt_text):
+        """Generate text using OpenRouter"""
+        try:
+            from openai import OpenAI
+            api_key = self.api_keys.get('openrouter')
+            model = getattr(self, 'openrouter_model', 'auto')
+
+            client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key
+            )
+            response = client.chat.completions.create(
+                model=model if model != 'auto' else 'openai/gpt-4-turbo',
+                messages=[{"role": "user", "content": prompt_text}],
+                max_tokens=2048
+            )
+            return True, response.choices[0].message.content
+        except ImportError:
+            return False, "OpenAI SDK not installed (required for OpenRouter). Run: pip install openai"
+        except Exception as e:
+            return False, f"OpenRouter error: {str(e)}"
 
     def create_dashboard_settings_tab(self):
         """Create dashboard customization settings"""
@@ -4478,6 +5637,271 @@ class AmanuensisApp:
 
         # Update label when slider changes
         freq_slider.configure(command=lambda v: self.freq_value_label.configure(text=f"{int(v)}s"))
+
+    def create_insights_presets_tab(self):
+        """Create Insights Presets settings tab for customizing quick-action buttons"""
+        tab = self.settings_tabview.tab("Insights Presets")
+        tab.grid_columnconfigure(0, weight=1)
+
+        # Get theme colors (light, dark) tuples
+        FG = ("#212529", "#e6e6e6")  # Text color
+        FG_MUTED = ("#6c757d", "#9ca3af")  # Muted text
+
+        # Header
+        ctk.CTkLabel(
+            tab,
+            text="Customize Insights Preset Buttons",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=FG
+        ).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 5))
+
+        ctk.CTkLabel(
+            tab,
+            text="Configure the quick-action buttons shown in the Insights panel. Add, edit, or remove presets.",
+            font=ctk.CTkFont(size=12),
+            text_color=FG_MUTED
+        ).grid(row=1, column=0, sticky="w", padx=10, pady=(0, 15))
+
+        # Scrollable frame for preset list
+        presets_frame = ctk.CTkScrollableFrame(
+            tab,
+            fg_color=("gray90", "gray20"),
+            height=300
+        )
+        presets_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=5)
+        presets_frame.grid_columnconfigure(0, weight=1)
+
+        # Render existing presets
+        for idx, preset in enumerate(self.insights_presets):
+            self._render_preset_item(presets_frame, preset, idx)
+
+        # Buttons
+        button_frame = ctk.CTkFrame(tab, fg_color="transparent")
+        button_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=15)
+
+        ctk.CTkButton(
+            button_frame,
+            text="➕ Add New Preset",
+            command=self.add_new_preset,
+            fg_color=("blue", "#1e40af"),
+            hover_color=("darkblue", "#1e3a8a"),
+            width=150
+        ).pack(side="left", padx=5)
+
+        ctk.CTkLabel(
+            button_frame,
+            text=f"Total presets: {len(self.insights_presets)} | Enabled: {sum(1 for p in self.insights_presets if p['enabled'])}",
+            font=ctk.CTkFont(size=11),
+            text_color=FG_MUTED
+        ).pack(side="right", padx=10)
+
+    def _render_preset_item(self, parent, preset, index):
+        """Render a single preset item with edit/delete controls"""
+        # Theme-aware colors
+        FG = ("#212529", "#e6e6e6")  # Text color
+        FG_MUTED = ("#6c757d", "#9ca3af")  # Muted text
+
+        item_frame = ctk.CTkFrame(parent, fg_color=("white", "gray25"), corner_radius=8)
+        item_frame.grid(row=index, column=0, sticky="ew", padx=5, pady=5)
+        item_frame.grid_columnconfigure(1, weight=1)
+
+        # Enabled checkbox
+        enabled_var = tk.BooleanVar(value=preset['enabled'])
+
+        def toggle_enabled():
+            preset['enabled'] = enabled_var.get()
+            self.refresh_insights_panel_presets()
+
+        ctk.CTkCheckBox(
+            item_frame,
+            text="",
+            variable=enabled_var,
+            command=toggle_enabled,
+            width=30
+        ).grid(row=0, column=0, padx=10, pady=10, sticky="w")
+
+        # Label display
+        label_display = ctk.CTkLabel(
+            item_frame,
+            text=preset['label'],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=FG,
+            anchor="w"
+        )
+        label_display.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+
+        # Query preview (truncated)
+        query_preview = preset['query'][:60] + "..." if len(preset['query']) > 60 else preset['query']
+        ctk.CTkLabel(
+            item_frame,
+            text=query_preview,
+            font=ctk.CTkFont(size=11),
+            text_color=FG_MUTED,
+            anchor="w"
+        ).grid(row=1, column=1, sticky="w", padx=5, pady=(0, 10))
+
+        # Edit button
+        ctk.CTkButton(
+            item_frame,
+            text="✏️ Edit",
+            command=lambda: self.edit_preset(index),
+            fg_color=("gray70", "gray30"),
+            hover_color=("gray60", "gray40"),
+            width=80,
+            height=28
+        ).grid(row=0, column=2, rowspan=2, padx=5, pady=10)
+
+        # Delete button
+        ctk.CTkButton(
+            item_frame,
+            text="🗑️",
+            command=lambda: self.delete_preset(index),
+            fg_color=("red", "#dc2626"),
+            hover_color=("darkred", "#b91c1c"),
+            width=40,
+            height=28
+        ).grid(row=0, column=3, rowspan=2, padx=5, pady=10)
+
+    def add_new_preset(self):
+        """Open dialog to add a new preset"""
+        # Theme-aware colors
+        FG = ("#212529", "#e6e6e6")
+
+        dialog = ctk.CTkToplevel(self.settings_window)
+        dialog.title("Add New Preset")
+        dialog.geometry("500x350")
+        dialog.transient(self.settings_window)
+        dialog.grab_set()
+
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (500 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (350 // 2)
+        dialog.geometry(f"500x350+{x}+{y}")
+
+        # Label input
+        ctk.CTkLabel(dialog, text="Button Label (with emoji):", font=ctk.CTkFont(size=12), text_color=FG).pack(padx=20, pady=(20, 5), anchor="w")
+        label_entry = ctk.CTkEntry(dialog, placeholder_text="e.g., 🔍 Key Points", width=460)
+        label_entry.pack(padx=20, pady=(0, 15))
+
+        # Query input
+        ctk.CTkLabel(dialog, text="Analysis Query:", font=ctk.CTkFont(size=12), text_color=FG).pack(padx=20, pady=(0, 5), anchor="w")
+        query_textbox = ctk.CTkTextbox(dialog, height=150, width=460)
+        query_textbox.pack(padx=20, pady=(0, 15))
+        query_textbox.insert("1.0", "Analyze...")
+
+        # Buttons
+        button_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        button_frame.pack(padx=20, pady=10, fill="x")
+
+        def save_new_preset():
+            label = label_entry.get().strip()
+            query = query_textbox.get("1.0", "end-1c").strip()
+
+            if not label or not query:
+                from tkinter import messagebox
+                messagebox.showwarning("Invalid Input", "Label and query cannot be empty.")
+                return
+
+            new_preset = {
+                'id': f"custom_{len(self.insights_presets)}",
+                'label': label,
+                'query': query,
+                'enabled': True
+            }
+            self.insights_presets.append(new_preset)
+            self.save_settings_to_config()
+            self.refresh_insights_panel_presets()
+            dialog.destroy()
+            # Refresh settings tab
+            if hasattr(self, 'settings_tabview'):
+                self.create_insights_presets_tab()
+
+        ctk.CTkButton(button_frame, text="Save", command=save_new_preset, width=100).pack(side="right", padx=5)
+        ctk.CTkButton(button_frame, text="Cancel", command=dialog.destroy, width=100, fg_color="gray").pack(side="right")
+
+    def edit_preset(self, index):
+        """Open dialog to edit an existing preset"""
+        if index >= len(self.insights_presets):
+            return
+
+        preset = self.insights_presets[index]
+
+        # Theme-aware colors
+        FG = ("#212529", "#e6e6e6")
+
+        dialog = ctk.CTkToplevel(self.settings_window)
+        dialog.title("Edit Preset")
+        dialog.geometry("500x350")
+        dialog.transient(self.settings_window)
+        dialog.grab_set()
+
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (500 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (350 // 2)
+        dialog.geometry(f"500x350+{x}+{y}")
+
+        # Label input
+        ctk.CTkLabel(dialog, text="Button Label (with emoji):", font=ctk.CTkFont(size=12), text_color=FG).pack(padx=20, pady=(20, 5), anchor="w")
+        label_entry = ctk.CTkEntry(dialog, width=460)
+        label_entry.insert(0, preset['label'])
+        label_entry.pack(padx=20, pady=(0, 15))
+
+        # Query input
+        ctk.CTkLabel(dialog, text="Analysis Query:", font=ctk.CTkFont(size=12), text_color=FG).pack(padx=20, pady=(0, 5), anchor="w")
+        query_textbox = ctk.CTkTextbox(dialog, height=150, width=460)
+        query_textbox.insert("1.0", preset['query'])
+        query_textbox.pack(padx=20, pady=(0, 15))
+
+        # Buttons
+        button_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        button_frame.pack(padx=20, pady=10, fill="x")
+
+        def save_edits():
+            label = label_entry.get().strip()
+            query = query_textbox.get("1.0", "end-1c").strip()
+
+            if not label or not query:
+                from tkinter import messagebox
+                messagebox.showwarning("Invalid Input", "Label and query cannot be empty.")
+                return
+
+            preset['label'] = label
+            preset['query'] = query
+            self.save_settings_to_config()
+            self.refresh_insights_panel_presets()
+            dialog.destroy()
+            # Refresh settings tab
+            if hasattr(self, 'settings_tabview'):
+                self.create_insights_presets_tab()
+
+        ctk.CTkButton(button_frame, text="Save", command=save_edits, width=100).pack(side="right", padx=5)
+        ctk.CTkButton(button_frame, text="Cancel", command=dialog.destroy, width=100, fg_color="gray").pack(side="right")
+
+    def delete_preset(self, index):
+        """Delete a preset after confirmation"""
+        if index >= len(self.insights_presets):
+            return
+
+        from tkinter import messagebox
+        preset = self.insights_presets[index]
+
+        if messagebox.askyesno("Confirm Delete", f"Delete preset '{preset['label']}'?"):
+            self.insights_presets.pop(index)
+            self.save_settings_to_config()
+            self.refresh_insights_panel_presets()
+            # Refresh settings tab
+            if hasattr(self, 'settings_tabview'):
+                self.create_insights_presets_tab()
+
+    def refresh_insights_panel_presets(self):
+        """Refresh the preset buttons in the insights panel"""
+        # This will recreate the buttons dynamically
+        # We'll need to update ui_components_new.py to support this
+        print(f"[PRESETS] Refreshed: {len([p for p in self.insights_presets if p['enabled']])} enabled")
+        # TODO: Implement dynamic button refresh in UI
+        self.show_toast("Preset buttons will update on next restart", 2000)
 
     def create_prompt_editor_tab(self):
         """Create prompt template editor interface"""
@@ -5156,6 +6580,23 @@ class AmanuensisApp:
             if hasattr(self, 'hf_token_entry'):
                 self.huggingface_token = self.hf_token_entry.get().strip()
 
+            # Apply API key settings
+            if hasattr(self, 'api_keys'):
+                # Update API keys from UI
+                for provider in ['gemini', 'claude', 'openai', 'openrouter']:
+                    var_name = f'{provider}_key_var'
+                    if hasattr(self, var_name):
+                        key_var = getattr(self, var_name)
+                        self.api_keys[provider] = key_var.get().strip()
+
+                # Update active provider
+                if hasattr(self, 'active_provider_var'):
+                    self.active_provider = self.active_provider_var.get()
+
+                # Reinitialize Gemini client if key changed and it's the active provider
+                if self.active_provider == 'gemini' and self.api_keys.get('gemini'):
+                    self.setup_claude_client()
+
             # Save settings to config file
             self.save_settings_to_config()
 
@@ -5252,6 +6693,25 @@ class AmanuensisApp:
                     'model': self.model_var.get() if hasattr(self, 'model_var') else 'claude-3-sonnet-20240229',
                     'frequency': int(self.frequency_var.get()) if hasattr(self, 'frequency_var') else 120
                 },
+                'api_keys': {
+                    'active_provider': getattr(self, 'active_provider', 'gemini'),
+                    'gemini': {
+                        'key': self.api_keys.get('gemini', '') if hasattr(self, 'api_keys') else '',
+                        'model': self.gemini_model_var.get() if hasattr(self, 'gemini_model_var') else 'gemini-2.0-flash-001'
+                    },
+                    'claude': {
+                        'key': self.api_keys.get('claude', '') if hasattr(self, 'api_keys') else '',
+                        'model': self.claude_model_var.get() if hasattr(self, 'claude_model_var') else 'claude-3-5-sonnet-20241022'
+                    },
+                    'openai': {
+                        'key': self.api_keys.get('openai', '') if hasattr(self, 'api_keys') else '',
+                        'model': self.openai_model_var.get() if hasattr(self, 'openai_model_var') else 'gpt-4o'
+                    },
+                    'openrouter': {
+                        'key': self.api_keys.get('openrouter', '') if hasattr(self, 'api_keys') else '',
+                        'model': self.openrouter_model_var.get() if hasattr(self, 'openrouter_model_var') else 'auto'
+                    }
+                },
                 'audio': {
                     'buffer_duration': int(self.buffer_duration_var.get()) if hasattr(self, 'buffer_duration_var') else 30,
                     'quality': self.quality_var.get() if hasattr(self, 'quality_var') else 'medium',
@@ -5268,7 +6728,8 @@ class AmanuensisApp:
                     'auto_save': self.auto_save_var.get() if hasattr(self, 'auto_save_var') else True,
                     'naming_pattern': self.naming_pattern_var.get() if hasattr(self, 'naming_pattern_var') else 'session_{date}_{time}',
                     'custom_pattern': self.custom_pattern_entry.get() if hasattr(self, 'custom_pattern_entry') else ''
-                }
+                },
+                'insights_presets': self.insights_presets if hasattr(self, 'insights_presets') else []
             }
 
             with open('amanuensis_settings.json', 'w', encoding='utf-8') as f:
@@ -5299,6 +6760,8 @@ class AmanuensisApp:
                             if hasattr(self, 'layout_preferences'):
                                 self.layout_preferences['theme'] = loaded_theme
                             print(f"Theme set to: {self.current_theme}")
+                            # Update CustomTkinter appearance mode to match
+                            ctk.set_appearance_mode(loaded_theme)
                             self.setup_professional_theme()  # Reapply theme
 
                     # Layout settings with validation
@@ -5355,6 +6818,28 @@ class AmanuensisApp:
                             self.discontinuity_warning_throttle = max(1, audio['discontinuity_warning_throttle'])
                             print(f"[Config] Loaded discontinuity_warning_throttle: {self.discontinuity_warning_throttle}")
 
+                    # API Keys settings
+                    if 'api_keys' in config and isinstance(config['api_keys'], dict):
+                        api_keys_config = config['api_keys']
+                        if not hasattr(self, 'api_keys'):
+                            self.api_keys = {}
+
+                        # Load active provider
+                        if 'active_provider' in api_keys_config:
+                            self.active_provider = api_keys_config['active_provider']
+                            print(f"[Config] Active provider: {self.active_provider}")
+
+                        for provider in ['gemini', 'claude', 'openai', 'openrouter']:
+                            if provider in api_keys_config and isinstance(api_keys_config[provider], dict):
+                                provider_config = api_keys_config[provider]
+                                if 'key' in provider_config:
+                                    self.api_keys[provider] = provider_config['key']
+                                if 'model' in provider_config:
+                                    model_var_name = f'{provider}_model'
+                                    setattr(self, model_var_name, provider_config['model'])
+
+                        print(f"[Config] Loaded API keys for {len(self.api_keys)} providers")
+
                     # Stitching settings - Fix #1-5 configuration
                     if 'stitch' in config and isinstance(config['stitch'], dict):
                         self.stitching_config = config['stitch']
@@ -5381,6 +6866,11 @@ class AmanuensisApp:
                                     self.transcript_text.configure(font=ctk.CTkFont(size=loaded_size))
                                 if hasattr(self, 'font_size_label'):
                                     self.font_size_label.configure(text=f"{loaded_size}")
+
+                    # Insights Presets - customizable quick-action buttons
+                    if 'insights_presets' in config and isinstance(config['insights_presets'], list):
+                        self.insights_presets = config['insights_presets']
+                        print(f"[Config] Loaded {len(self.insights_presets)} insights presets")
 
                     print("Settings loaded successfully from amanuensis_settings.json")
                 else:
@@ -5571,6 +7061,98 @@ class AmanuensisApp:
     # PROMPT TEMPLATE MANAGEMENT METHODS
     # =================================
 
+    def create_default_templates(self):
+        """Create default prompt templates"""
+        try:
+            self.prompt_templates = {
+                'cbt_realtime': {
+                    'name': 'CBT Real-time Analysis',
+                    'description': 'Cognitive Behavioral Therapy focused real-time insights',
+                    'category': 'real-time',
+                    'prompt': '''Analyze this therapy session excerpt from a CBT perspective.
+
+**Transcript:**
+{transcript_segment}
+
+**Session Context:**
+Duration: {session_duration} minutes
+Modality: {therapy_modality}
+
+**Analysis Focus:**
+1. Identify cognitive distortions
+2. Note behavioral patterns
+3. Suggest interventions
+4. Assess client engagement
+
+Provide brief, actionable insights (150-200 words).''',
+                    'variables': ['transcript_segment', 'session_duration', 'therapy_modality'],
+                    'created_by': 'system',
+                    'created_date': str(datetime.now().date())
+                },
+                'risk_assessment': {
+                    'name': 'Risk Assessment',
+                    'description': 'Evaluate potential risk factors and crisis indicators',
+                    'category': 'risk-assessment',
+                    'prompt': '''Evaluate this session excerpt for risk factors.
+
+**Transcript:**
+{transcript_segment}
+
+**Session Context:**
+Duration: {session_duration} minutes
+Current Risk Level: {risk_level}
+
+**Assessment Criteria:**
+- Suicidal ideation (explicit or implicit)
+- Self-harm indicators
+- Harm to others
+- Crisis markers
+- Safety concerns
+
+**Provide:**
+1. Risk Level: LOW / MEDIUM / HIGH / CRISIS
+2. Specific Concerns: (brief list)
+3. Recommended Actions: (immediate steps)
+
+Response: 100-150 words, clear and actionable.''',
+                    'variables': ['transcript_segment', 'session_duration', 'risk_level'],
+                    'created_by': 'system',
+                    'created_date': str(datetime.now().date())
+                },
+                'progress_check': {
+                    'name': 'Progress & Engagement',
+                    'description': 'Assess client progress and therapeutic alliance',
+                    'category': 'real-time',
+                    'prompt': '''Assess client progress and engagement in this segment.
+
+**Transcript:**
+{transcript_segment}
+
+**Context:**
+Session Duration: {session_duration} minutes
+Therapy Modality: {therapy_modality}
+
+**Analysis Focus:**
+1. Client engagement level (1-10)
+2. Progress indicators
+3. Treatment adherence
+4. Therapeutic alliance quality
+5. Areas of improvement
+
+Provide structured assessment (150-200 words).''',
+                    'variables': ['transcript_segment', 'session_duration', 'therapy_modality'],
+                    'created_by': 'system',
+                    'created_date': str(datetime.now().date())
+                }
+            }
+
+            # Save to file
+            self.save_templates_to_file()
+            print(f"[OK] Created {len(self.prompt_templates)} default templates")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to create default templates: {e}")
+
     def load_templates(self):
         """Load prompt templates from JSON file"""
         try:
@@ -5599,9 +7181,14 @@ class AmanuensisApp:
                 # Store metadata
                 self.template_categories = data.get('template_categories', [])
                 self.available_variables = data.get('available_variables', {})
+            else:
+                # Create default templates if file doesn't exist
+                print("[INFO] No templates file found, creating defaults...")
+                self.create_default_templates()
 
-            # Refresh template list
-            self.refresh_template_list()
+            # Refresh template list if UI is ready
+            if hasattr(self, 'template_listbox'):
+                self.refresh_template_list()
 
             print(f"Loaded {len(self.prompt_templates)} prompt templates")
 
@@ -5742,11 +7329,8 @@ class AmanuensisApp:
         try:
             # Ensure settings modal and prompt editor tab are initialized
             if not hasattr(self, 'template_name_entry'):
-                print("ERROR: Prompt editor not initialized. Opening settings first...")
-                self.show_settings_modal()
-                # Switch to Prompt Editor tab
-                if hasattr(self, 'settings_tabview'):
-                    self.settings_tabview.set("Prompt Editor")
+                print("ERROR: Prompt editor not initialized properly")
+                messagebox.showerror("Error", "Template editor not ready. Please close and reopen Settings.")
                 return
             
             # Clear editor
@@ -5814,27 +7398,24 @@ Provide structured analysis in 200-300 words."""
             print(f"Error duplicating template: {e}")
 
     def delete_template(self):
-        """Delete the currently selected template"""
+        """Delete the currently selected template (including defaults)"""
         try:
             if self.current_template and self.current_template in self.prompt_templates:
-                template_name = self.prompt_templates[self.current_template].get('name', self.current_template)
+                template = self.prompt_templates.get(self.current_template, {})
+                template_name = template.get('name', self.current_template) if template else self.current_template
+                is_system = template.get('created_by') == 'system' if template else False
 
-                # Confirm deletion
-                result = messagebox.askyesno(
-                    "Delete Template",
-                    f"Are you sure you want to delete '{template_name}'?\n\nThis action cannot be undone."
-                )
+                # Enhanced confirmation message for defaults
+                confirm_msg = f"Are you sure you want to delete '{template_name}'?"
+                if is_system:
+                    confirm_msg += "\n\n⚠️ This is a default template. You can restore it later using 'Restore Defaults'."
+                else:
+                    confirm_msg += "\n\nThis action cannot be undone."
+
+                result = messagebox.askyesno("Delete Template", confirm_msg)
 
                 if result:
-                    # Check if it's a default template
-                    if self.prompt_templates[self.current_template].get('created_by') == 'system':
-                        messagebox.showwarning(
-                            "Cannot Delete",
-                            "Default templates cannot be deleted.\n\nYou can duplicate and modify them instead."
-                        )
-                        return
-
-                    # Delete template
+                    # Delete template (now allows defaults)
                     del self.prompt_templates[self.current_template]
                     self.templates_modified = True
 
@@ -5847,6 +7428,15 @@ Provide structured analysis in 200-300 words."""
                     # Refresh list and analysis dropdown
                     self.refresh_template_list()
                     self.refresh_analysis_template_dropdown()
+
+                    # Reload analysis templates and refresh prompt buttons
+                    if hasattr(self, 'load_templates_for_analysis'):
+                        self.load_templates_for_analysis()
+                    if hasattr(self, 'render_prompt_buttons'):
+                        try:
+                            self.render_prompt_buttons()
+                        except Exception as e:
+                            print(f"[WARNING] Could not refresh prompt buttons: {e}")
 
                     # Save to file
                     self.save_templates_to_file()
@@ -6021,7 +7611,16 @@ Provide structured analysis in 200-300 words."""
                 
                 # Refresh UI
                 self.refresh_template_list()
-                
+
+                # Reload analysis templates and refresh prompt buttons
+                if hasattr(self, 'load_templates_for_analysis'):
+                    self.load_templates_for_analysis()
+                if hasattr(self, 'render_prompt_buttons'):
+                    try:
+                        self.render_prompt_buttons()
+                    except Exception as e:
+                        print(f"[WARNING] Could not refresh prompt buttons: {e}")
+
                 # Show detailed success message
                 success_msg = f"✅ Template '{name}' saved successfully!\n\n"
                 success_msg += f"📝 Template ID: {template_id}\n"
@@ -6144,92 +7743,6 @@ Provide structured analysis in 200-300 words."""
             print(f"Error extracting variables: {e}")
             return []
 
-    def test_template(self):
-        """Test the current template with sample data"""
-        try:
-            prompt_text = self.prompt_editor.get("1.0", "end-1c")
-
-            # Sample data for testing
-            sample_data = {
-                'transcript_segment': '[14:23:15] Speaker 2: I\'ve been feeling really anxious about work lately. My boss keeps piling on more projects and I don\'t know how to handle it all.',
-                'session_context': 'Client discussing work-related stress and anxiety. Previous sessions focused on coping strategies and time management.',
-                'session_duration': '35',
-                'therapy_modality': 'CBT',
-                'analysis_history': 'Identified catastrophic thinking patterns in previous segments. Client responded well to cognitive restructuring exercises.',
-                'risk_level': '3'
-            }
-
-            # Replace variables with sample data
-            test_prompt = self.replace_template_variables(prompt_text, sample_data)
-
-            # Show test result in a popup
-            self.show_template_test_result(test_prompt)
-
-        except Exception as e:
-            print(f"Error testing template: {e}")
-            messagebox.showerror("Test Error", f"Failed to test template: {str(e)}")
-
-    def replace_template_variables(self, prompt_text, data):
-        """Replace template variables with actual data"""
-        try:
-            for variable, value in data.items():
-                placeholder = f"{{{variable}}}"
-                prompt_text = prompt_text.replace(placeholder, str(value))
-            return prompt_text
-        except Exception as e:
-            print(f"Error replacing variables: {e}")
-            return prompt_text
-
-    def show_template_test_result(self, test_prompt):
-        """Show template test result in a popup window"""
-        try:
-            # Create test result window
-            test_window = ctk.CTkToplevel(self.settings_window)
-            test_window.title("Template Test Result")
-            test_window.geometry("600x500")
-            test_window.transient(self.settings_window)
-
-            # Header
-            header = ctk.CTkFrame(test_window, fg_color=self.colors.get('info', '#1d4ed8'))
-            header.pack(fill="x", padx=10, pady=(10, 5))
-
-            ctk.CTkLabel(
-                header,
-                text="🧪 Template Test Result",
-                font=ctk.CTkFont(size=16, weight="bold"),
-                text_color="white"
-            ).pack(pady=10)
-
-            # Test result display
-            result_frame = ctk.CTkFrame(test_window)
-            result_frame.pack(fill="both", expand=True, padx=10, pady=5)
-
-            ctk.CTkLabel(
-                result_frame,
-                text="Prompt that would be sent to Claude:",
-                font=ctk.CTkFont(size=12, weight="bold")
-            ).pack(anchor="w", padx=10, pady=(10, 5))
-
-            result_text = ctk.CTkTextbox(
-                result_frame,
-                font=ctk.CTkFont(size=11),
-                wrap="word"
-            )
-            result_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-            result_text.insert("1.0", test_prompt)
-            result_text.configure(state="disabled")
-
-            # Close button
-            close_btn = ctk.CTkButton(
-                test_window,
-                text="Close",
-                command=test_window.destroy,
-                width=100
-            )
-            close_btn.pack(pady=10)
-
-        except Exception as e:
-            print(f"Error showing test result: {e}")
 
     def atomic_template_save(self, template_id, template_data):
         """Atomic template save operation with backup and rollback"""
@@ -6994,11 +8507,53 @@ Provide structured analysis in 200-300 words."""
                         options.append(display_name)
             
             return options if options else ["No templates available"]
-            
+
         except Exception as e:
             print(f"Error getting template options: {e}")
             return ["Error loading templates"]
-    
+
+    def populate_insights_template_options(self):
+        """Populate template dropdown options in insights panel"""
+        try:
+            # Load templates if not already loaded
+            if not hasattr(self, 'analysis_templates') or not self.analysis_templates:
+                self.load_templates_for_analysis()
+
+            # Get formatted template options
+            options = ['Quick Query']  # Default option for custom queries
+
+            if hasattr(self, 'analysis_templates'):
+                for template_id, template in self.analysis_templates.items():
+                    display_name = self._get_template_display_name(template)
+                    options.append(display_name)
+
+            # Update insights state with template options
+            if hasattr(self, 'insights_state'):
+                self.insights_state.template_options = options
+
+                # Update UI dropdown if it exists
+                if hasattr(self.insights_state, 'template_dropdown'):
+                    self.root.after(0, lambda: self.insights_state.template_dropdown.configure(values=options))
+
+            if self.VERBOSE_INSIGHTS:
+                print(f"[INSIGHTS] Populated {len(options)} template options")
+
+        except Exception as e:
+            print(f"Error populating insights template options: {e}")
+            if hasattr(self, 'insights_state'):
+                self.insights_state.template_options = ['Quick Query']
+
+    def _get_template_display_name(self, template):
+        """Get formatted display name for a template"""
+        name = template.get('name', 'Unnamed Template')
+        created_by = template.get('created_by', 'system')
+
+        # Add emoji indicators
+        if created_by == 'user':
+            return f"📝 {name}"
+        else:
+            return f"⚙️ {name}"
+
     def on_template_selection_changed(self, selection):
         """Handle template selection change"""
         try:
@@ -7190,7 +8745,11 @@ Provide structured analysis in 200-300 words."""
         except Exception as e:
             print(f"Error using template immediately: {e}")
             messagebox.showerror("Error", f"Failed to use template: {str(e)}")
-    
+
+    def test_template(self):
+        """Test the current template (delegates to test_template_with_live_data)"""
+        self.test_template_with_live_data()
+
     def test_template_with_live_data(self):
         """Test template with live session data (Phase 3 enhancement)"""
         try:
@@ -7413,6 +8972,10 @@ Provide structured analysis in 200-300 words."""
 
     def generate_insight_on_demand(self, prompt_id):
         """Generate insight for selected time window using specified prompt"""
+        # Early return if insights are disabled
+        if not self.analysis_enabled:
+            return
+
         if not GEMINI_AVAILABLE or not self.gemini_model:
             messagebox.showerror("Error", "Gemini API not available. Check API configuration.")
             return
@@ -7443,17 +9006,14 @@ Provide structured analysis in 200-300 words."""
             import threading
             def run_insight():
                 try:
-                    # Use Gemini to generate insight
+                    # Use multi-provider to generate insight
                     prompt = f"{prompt_data['prompt']}\n\nTranscript (last {window_minutes} min):\n{transcript_text}"
 
-                    if hasattr(self, 'gemini_client') and self.gemini_client:
-                        response = self.gemini_client.models.generate_content(
-                            model=self.gemini_model,
-                            contents=prompt
-                        )
-                        insight_text = response.text
-                    else:
-                        insight_text = "Gemini API not configured"
+                    # Use multi-provider system
+                    success, insight_text = self.generate_with_provider(prompt)
+
+                    if not success:
+                        insight_text = f"Insight generation failed: {insight_text}"
 
                     # Record LLM usage (Phase 5b)
                     input_tokens, output_tokens, cost = self.estimate_tokens_and_cost(prompt, insight_text)
@@ -7505,6 +9065,63 @@ Provide structured analysis in 200-300 words."""
         except Exception as e:
             print(f"Error getting recent transcript: {e}")
             return ""
+
+    def get_highlighted_transcript(self):
+        """Get currently highlighted/selected text from transcript widget"""
+        try:
+            # Access the text widget through transcript_panel_actions
+            if hasattr(self, 'transcript_panel_actions') and self.transcript_panel_actions.text_widget:
+                text_widget = self.transcript_panel_actions.text_widget
+
+                # Check if there's a selection
+                try:
+                    selection = text_widget.get("sel.first", "sel.last")
+                    if selection and selection.strip():
+                        return selection.strip()
+                except:
+                    # No selection
+                    pass
+
+            return ""
+
+        except Exception as e:
+            print(f"Error getting highlighted transcript: {e}")
+            return ""
+
+    def resolve_segment(self):
+        """
+        Determine transcript segment source: highlighted text or time-based.
+
+        Returns:
+            tuple: (segment_text, source_label)
+                segment_text: The transcript text to analyze
+                source_label: Human-readable description ("selection" or "last X min")
+        """
+        try:
+            # First, check for highlighted text
+            highlighted = self.get_highlighted_transcript()
+            if highlighted:
+                return (highlighted, "selection")
+
+            # Fall back to time-based segment
+            minutes = getattr(self, 'insight_window_minutes', 5)
+            if not hasattr(self, 'insight_window_var'):
+                # Fallback if var not set
+                seconds = minutes * 60
+            else:
+                minutes = self.insight_window_var.get()
+                seconds = minutes * 60
+
+            transcript_text = self.get_recent_transcript(seconds)
+
+            if not transcript_text or len(transcript_text.strip()) < 50:
+                return ("", f"last {minutes} min (empty)")
+
+            return (transcript_text, f"last {minutes} min")
+
+        except Exception as e:
+            print(f"Error resolving segment: {e}")
+            return ("", "error")
 
     def display_insight(self, label, insight_text, window_minutes):
         """Display generated insight in the insights panel - UNIFIED SINK (routes to NEW panel)"""
@@ -7723,15 +9340,11 @@ Provide structured analysis in 200-300 words."""
 
 Provide a professional clinical summary suitable for therapist case notes."""
 
-                    # Use Gemini API call
-                    if hasattr(self, 'gemini_client') and self.gemini_client:
-                        response = self.gemini_client.models.generate_content(
-                            model=self.gemini_model,
-                            contents=prompt
-                        )
-                        summary_text = response.text
-                    else:
-                        summary_text = "Gemini API not configured"
+                    # Use multi-provider system
+                    success, summary_text = self.generate_with_provider(prompt)
+
+                    if not success:
+                        summary_text = f"Summary generation failed: {summary_text}"
 
                     progress_window.after(0, lambda: progress_bar.set(1.0))
                     progress_window.after(0, lambda: status_label.configure(text="Complete!"))
@@ -7834,15 +9447,11 @@ Provide a professional clinical summary suitable for therapist case notes."""
 
 Provide a complete, professional progress and process note suitable for clinical documentation."""
 
-                    # Use Gemini API call
-                    if hasattr(self, 'gemini_client') and self.gemini_client:
-                        response = self.gemini_client.models.generate_content(
-                            model=self.gemini_model,
-                            contents=prompt
-                        )
-                        notes_text = response.text
-                    else:
-                        notes_text = "Gemini API not configured"
+                    # Use multi-provider system
+                    success, notes_text = self.generate_with_provider(prompt)
+
+                    if not success:
+                        notes_text = f"Progress notes generation failed: {notes_text}"
 
                     progress_window.after(0, lambda: progress_bar.set(1.0))
                     progress_window.after(0, lambda: status_label.configure(text="Complete!"))
@@ -8504,11 +10113,11 @@ Provide a complete, professional progress and process note suitable for clinical
             all_segments = (mic_segments or []) + (sys_segments or [])
             all_segments.sort(key=lambda s: s['start'])
 
-            # Process each segment through the PHI pipeline
+            # Process each segment through the transcription pipeline
             for segment in all_segments:
                 abs_start = buffer_start_time + segment['start']
                 abs_end = buffer_start_time + segment['end']
-                
+
                 turn_data = {
                     'speaker': segment['speaker'],
                     'text': segment['text'],
@@ -8516,20 +10125,21 @@ Provide a complete, professional progress and process note suitable for clinical
                     'end': abs_end,
                     'id': str(uuid.uuid4())
                 }
-                self.process_transcription_with_phi(turn_data)
+                self._append_transcript_turn(**turn_data)
 
             # Performance monitoring
             processing_time = time.time() - start_time
             rtf = processing_time / audio_duration  # Real-time factor
             gpu_memory_after = self.get_gpu_memory_usage()
-            cpu_usage = psutil.cpu_percent()
+            # Use interval to get actual CPU usage (first call with interval=None returns 0)
+            cpu_usage = psutil.cpu_percent(interval=0.1) if processing_time > 0.1 else psutil.cpu_percent(interval=None) or 0.0
 
             self.performance_stats['rtf_values'].append(rtf)
             self.performance_stats['processing_times'].append(processing_time)
             self.performance_stats['gpu_memory_usage'].append(gpu_memory_after)
             self.performance_stats['cpu_usage'].append(cpu_usage)
 
-            print(f"Performance: RTF={rtf:.2f}x, Processing={processing_time:.2f}s, GPU={gpu_memory_after}MB, CPU={cpu_usage}%")
+            print(f"Performance: RTF={rtf:.2f}x, Processing={processing_time:.2f}s, GPU={gpu_memory_after}MB, CPU={cpu_usage:.1f}%")
 
             # Update status with performance info
             if hasattr(self, 'status_label'):
@@ -8551,7 +10161,7 @@ Provide a complete, professional progress and process note suitable for clinical
                 audio_tensor,
                 self.silero_vad_model,
                 sampling_rate=self.sample_rate,
-                min_speech_duration_ms=500,  # Minimum 500ms speech
+                min_speech_duration_ms=250,  # Reduced from 500ms to capture short utterances
                 min_silence_duration_ms=100,  # 100ms silence between segments
                 return_seconds=False
             )
@@ -8590,15 +10200,16 @@ Provide a complete, professional progress and process note suitable for clinical
                 condition_on_previous_text=True,
                 vad_filter=True,  # Enable VAD in Whisper too
                 vad_parameters=dict(
-                    min_silence_duration_ms=500,
-                    speech_pad_ms=200
+                    min_silence_duration_ms=300,  # Reduced from 500ms
+                    speech_pad_ms=150  # Reduced from 200ms
                 )
             )
 
             # Return segments with timestamps
             result_segments = []
             for segment in segments:
-                if segment.text.strip() and len(segment.text.strip()) > 2:
+                # Keep all non-empty transcriptions (removed len > 2 filter to capture short utterances)
+                if segment.text.strip() and len(segment.text.strip()) > 0:
                     result_segments.append({
                         'text': segment.text.strip(),
                         'start': segment.start,
@@ -8717,7 +10328,7 @@ Provide a complete, professional progress and process note suitable for clinical
                 buffer_window_start
             )
 
-            # Stage 6: Process emittable segments through the PHI pipeline
+            # Stage 6: Process emittable segments through the transcription pipeline
             for segment in emittable_segments:
                 abs_start_ts = (self.absolute_session_start_time or 0) + segment['abs_start']
                 abs_end_ts = (self.absolute_session_start_time or 0) + segment['abs_end']
@@ -8729,7 +10340,7 @@ Provide a complete, professional progress and process note suitable for clinical
                     'end': abs_end_ts,
                     'id': segment.get('id') # Use the stitcher's unique ID
                 }
-                self.process_transcription_with_phi(turn_data)
+                self._append_transcript_turn(**turn_data)
 
             # Performance tracking
             processing_time = time.time() - start_time
@@ -8790,10 +10401,15 @@ Provide a complete, professional progress and process note suitable for clinical
                 self.process_audio_buffer_with_vad(mic_audio, sys_audio)
             except Exception as fallback_error:
                 print(f"Fallback processing also failed: {fallback_error}")
-                # Last resort: add raw text with timestamp
+                # Last resort: add error message to transcript
                 timestamp = datetime.now().strftime("%H:%M:%S")
-                error_text = f"[{timestamp}] [SYSTEM]: Audio processing error - chunk skipped\n"
-                self.process_transcription_with_phi(error_text)
+                error_text = f"[{timestamp}] [SYSTEM]: Audio processing error - chunk skipped"
+                self._append_transcript_turn(
+                    speaker="SYSTEM",
+                    text=error_text,
+                    start=time.time(),
+                    end=time.time()
+                )
 
     def align_whisper_with_pyannote(self, whisper_segments, diarization):
         """Align Whisper transcription segments with pyannote speaker segments"""
@@ -9295,9 +10911,18 @@ Audio Quality Report:
             return
 
         try:
-            # Read API key from env or settings
+            # Read API key from settings first, then fallback to environment variable
             import os
-            api_key = os.getenv('GOOGLE_API_KEY')
+            api_key = None
+
+            # Priority 1: Check stored API keys
+            if hasattr(self, 'api_keys') and self.api_keys.get('gemini'):
+                api_key = self.api_keys['gemini']
+                print("[OK] Using stored Gemini API key")
+            # Priority 2: Check environment variable
+            elif os.getenv('GOOGLE_API_KEY'):
+                api_key = os.getenv('GOOGLE_API_KEY')
+                print("[OK] Using Gemini API key from environment")
 
             if not api_key:
                 print("[ERROR] No Gemini API key configured")
@@ -9307,9 +10932,13 @@ Audio Quality Report:
                 return
 
             # Unified SDK pattern: store model name, use client for calls
-            model_name = 'gemini-2.0-flash-001'
+            # Use stored model if available, otherwise default
+            if hasattr(self, 'gemini_model') and isinstance(self.gemini_model, str):
+                model_name = self.gemini_model
+            else:
+                model_name = 'gemini-2.0-flash-001'
 
-            print("Initializing unified SDK client...")
+            print(f"Initializing unified SDK client with model: {model_name}...")
             self.gemini_client = genai.Client(api_key=api_key)
             self.gemini_model = model_name  # Store model name as string
 
@@ -9338,6 +10967,13 @@ Audio Quality Report:
             self.gemini_model = None
             self.gemini_client = None
             self.analysis_enabled = False
+
+        # Refresh prompt buttons to reflect analysis_enabled state
+        if hasattr(self, 'render_prompt_buttons'):
+            try:
+                self.root.after(100, self.render_prompt_buttons)  # Delay to ensure UI is ready
+            except Exception as e:
+                print(f"[WARNING] Could not refresh prompt buttons: {e}")
 
     def get_selected_prompt_template(self, template_type="real-time"):
         """Get the currently selected prompt template for analysis"""
@@ -9550,30 +11186,29 @@ Audio Quality Report:
             # Rate limiting
             self.apply_rate_limiting()
 
-            # Call Gemini API
+            # Call multi-provider API
             start_time = time.time()
 
-            if hasattr(self, 'gemini_client') and self.gemini_client:
-                response = self.gemini_client.models.generate_content(
-                    model=self.gemini_model,
-                    contents=prompt
-                )
-            else:
-                raise Exception("Gemini API not configured")
+            # Use multi-provider system
+            success, response_text = self.generate_with_provider(prompt)
+
+            if not success:
+                raise Exception(f"API call failed: {response_text}")
 
             processing_time = time.time() - start_time
 
             # Parse response
+            provider = getattr(self, 'active_provider', 'gemini')
             analysis_result = {
                 'id': request['id'],
                 'timestamp': request['timestamp'],
                 'processing_time': processing_time,
-                'model': "gemini-1.5-flash",
+                'model': provider,
                 'prompt_template': template.get('name', 'Unknown Template'),
                 'template_id': getattr(self, 'selected_template_id', 'cbt_realtime'),
-                'raw_response': response.text,
+                'raw_response': response_text,
                 'success': True,
-                'tokens_used': 0,  # Gemini doesn't expose token count in same way
+                'tokens_used': 0,  # Token counting varies by provider
                 'cost_estimate': 0
             }
 
@@ -9581,7 +11216,7 @@ Audio Quality Report:
             try:
                 # Look for JSON in response
                 import re
-                json_match = re.search(r'\{.*\}', response.content[0].text, re.DOTALL)
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if json_match:
                     analysis_result['structured_analysis'] = json.loads(json_match.group())
             except:
