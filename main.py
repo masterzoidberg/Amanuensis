@@ -6756,13 +6756,9 @@ class AmanuensisApp:
                         if 'appearance_mode' in dashboard and dashboard['appearance_mode'] in ['light', 'dark']:
                             loaded_theme = dashboard['appearance_mode']
                             print(f"Config loaded appearance_mode: {loaded_theme}")
-                            self.current_theme = loaded_theme
-                            if hasattr(self, 'layout_preferences'):
-                                self.layout_preferences['theme'] = loaded_theme
-                            print(f"Theme set to: {self.current_theme}")
-                            # Update CustomTkinter appearance mode to match
-                            ctk.set_appearance_mode(loaded_theme)
-                            self.setup_professional_theme()  # Reapply theme
+                            # Call the application's main theme-switching method to ensure all
+                            # UI elements are updated correctly and state is synchronized.
+                            self.switch_theme(loaded_theme)
 
                     # Layout settings with validation
                     if 'layout' in config and isinstance(config['layout'], dict):
